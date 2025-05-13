@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { collection, getDocs, query, orderBy, limit, startAfter, where, doc, getDoc } from 'firebase/firestore';
@@ -74,184 +74,184 @@ interface Filters {
 
 export default function RecruiterCandidatesPage() {
   const router = useRouter();
-   const [userRole, setUserRole] = useState<'applicant' | 'recruiter' | null>(null);
+  const [userRole, setUserRole] = useState<'applicant' | 'recruiter' | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
-const [filteredCandidates, setFilteredCandidates] = useState<Candidate[]>([]);
-const [lastVisible, setLastVisible] = useState<any>(null);
-const [hasMore, setHasMore] = useState<boolean>(true);
-const [searchTerm, setSearchTerm] = useState<string>('');
-const [showFilters, setShowFilters] = useState<boolean>(false);
-const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
-const [showModal, setShowModal] = useState<boolean>(false);
-const [error, setError] = useState<string>('');
-const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [filteredCandidates, setFilteredCandidates] = useState<Candidate[]>([]);
+  const [lastVisible, setLastVisible] = useState<any>(null);
+  const [hasMore, setHasMore] = useState<boolean>(true);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+  const [showModal, setShowModal] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   
-const [skillOptions, setSkillOptions] = useState<string[]>([]);
-const [filters, setFilters] = useState<Filters>({
-  location: '',
-  remote: false,
-  relocate: false,
-  visaSponsorship: false,
-  minExperience: '',
-  skills: [],
-  availability: ''
-});
+  const [skillOptions, setSkillOptions] = useState<string[]>([]);
+  const [filters, setFilters] = useState<Filters>({
+    location: '',
+    remote: false,
+    relocate: false,
+    visaSponsorship: false,
+    minExperience: '',
+    skills: [],
+    availability: ''
+  });
   
-// Job posting to match candidates against
-const [selectedJob, setSelectedJob] = useState<string>('');
-const [jobListings, setJobListings] = useState<JobListing[]>([]);
+  // Job posting to match candidates against
+  const [selectedJob, setSelectedJob] = useState<string>('');
+  const [jobListings, setJobListings] = useState<JobListing[]>([]);
   
   // Use the AuthContext hook at the top of your component
-const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
-// Replace your existing useEffect with this one
-useEffect(() => {
-  // Only proceed if authentication state is loaded
-  if (authLoading) return;
-  
-  // If no user is authenticated, redirect to sign in
-  if (!user) {
-    router.push('/signin');
-    return;
-  }
-  
-  const fetchUserRoleAndData = async () => {
-    setIsLoading(true);
-    setError('');
+  // Replace your existing useEffect with this one
+  useEffect(() => {
+    // Only proceed if authentication state is loaded
+    if (authLoading) return;
     
-    try {
-      // Check if the user has recruiter role
-      const userDoc = await getDoc(doc(db, "users", user.uid));
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        setUserRole(userData.role as 'applicant' | 'recruiter');
+    // If no user is authenticated, redirect to sign in
+    if (!user) {
+      router.push('/signin');
+      return;
+    }
+    
+    const fetchUserRoleAndData = async () => {
+      setIsLoading(true);
+      setError('');
+      
+      try {
+        // Check if the user has recruiter role
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setUserRole(userData.role as 'applicant' | 'recruiter');
+          
+          // If user is not a recruiter, redirect to applicant dashboard
+          if (userData.role !== 'recruiter') {
+            router.push('/applicant/applicantDashboard');
+            return;
+          }
+        }
         
-        // If user is not a recruiter, redirect to applicant dashboard
-        if (userData.role !== 'recruiter') {
-          router.push('/applicant/applicantDashboard');
+        // Fetch job listings for the recruiter
+        const jobsQuery = query(
+          collection(db, "jobs"),
+          where("status", "==", "active"),
+          limit(10)
+        );
+        
+        const jobsSnapshot = await getDocs(jobsQuery);
+        
+        const jobsList: JobListing[] = [];
+        jobsSnapshot.forEach((doc) => {
+          jobsList.push({
+            id: doc.id,
+            title: doc.data().title,
+            company: doc.data().company
+          });
+        });
+        
+        setJobListings(jobsList);
+        
+        // Fetch candidate profiles
+        let candidatesQuery = query(
+          collection(db, "candidateProfiles"),
+          orderBy("lastActive", "desc"),
+          limit(20)
+        );
+        
+        const candidatesSnapshot = await getDocs(candidatesQuery);
+        
+        if (candidatesSnapshot.empty) {
+          console.log("No candidate profiles found in database.");
+          setIsLoading(false);
           return;
         }
-      }
-      
-      // Fetch job listings for the recruiter
-      const jobsQuery = query(
-        collection(db, "jobs"),
-        where("status", "==", "active"),
-        limit(10)
-      );
-      
-      const jobsSnapshot = await getDocs(jobsQuery);
-      
-      const jobsList: JobListing[] = [];
-      jobsSnapshot.forEach((doc) => {
-        jobsList.push({
-          id: doc.id,
-          title: doc.data().title,
-          company: doc.data().company
-        });
-      });
-      
-      setJobListings(jobsList);
-      
-      // Fetch candidate profiles
-      let candidatesQuery = query(
-        collection(db, "candidateProfiles"),
-        orderBy("lastActive", "desc"),
-        limit(20)
-      );
-      
-      const candidatesSnapshot = await getDocs(candidatesQuery);
-      
-      if (candidatesSnapshot.empty) {
-        console.log("No candidate profiles found in database.");
-        setIsLoading(false);
-        return;
-      }
-      
-      // Define a type for Firestore candidate document data
-      interface FirestoreCandidateData {
-        userId?: string;
-        name?: string;
-        email?: string;
-        phone?: string;
-        location?: string;
-        title?: string;
-        experience?: number;
-        skills?: string[];
-        education?: Education[];
-        workHistory?: WorkHistory[];
-        bio?: string;
-        avatarUrl?: string;
-        linkedInUrl?: string;
-        githubUrl?: string;
-        portfolioUrl?: string;
-        availability?: string;
-        remote?: boolean;
-        relocate?: boolean;
-        visaSponsorship?: boolean;
-        lastActive?: any;
-        profileCompleted?: boolean;
-      }
+        
+        // Define a type for Firestore candidate document data
+        interface FirestoreCandidateData {
+          userId?: string;
+          name?: string;
+          email?: string;
+          phone?: string;
+          location?: string;
+          title?: string;
+          experience?: number;
+          skills?: string[];
+          education?: Education[];
+          workHistory?: WorkHistory[];
+          bio?: string;
+          avatarUrl?: string;
+          linkedInUrl?: string;
+          githubUrl?: string;
+          portfolioUrl?: string;
+          availability?: string;
+          remote?: boolean;
+          relocate?: boolean;
+          visaSponsorship?: boolean;
+          lastActive?: any;
+          profileCompleted?: boolean;
+        }
 
-      const candidatesList: Candidate[] = [];
-      const allSkills = new Set();
-      
-      candidatesSnapshot.forEach((doc) => {
-        const data = doc.data();
+        const candidatesList: Candidate[] = [];
+        const allSkills = new Set();
         
-        // Add all skills to the set for filter options
-        (data.skills as string[] | undefined)?.forEach((skill: string) => allSkills.add(skill));
-        
-        // Add random match score for demo purposes (in a real app this would be calculated)
-        const matchScore = Math.floor(Math.random() * 30) + 70; // Score between 70-99
-        
-        // Make sure to handle missing fields with defaults
-        candidatesList.push({
-          id: doc.id,
-          userId: data.userId || '',
-          name: data.name || 'Anonymous Candidate',
-          email: data.email || '',
-          phone: data.phone || '',
-          location: data.location || 'Remote',
-          title: data.title || 'Professional',
-          experience: data.experience || 0,
-          skills: data.skills || [],
-          education: data.education || [],
-          workHistory: data.workHistory || [],
-          bio: data.bio || '',
-          avatarUrl: data.avatarUrl || '',
-          linkedInUrl: data.linkedInUrl || '',
-          githubUrl: data.githubUrl || '',
-          portfolioUrl: data.portfolioUrl || '',
-          availability: data.availability || 'Available',
-          remote: data.remote || false,
-          relocate: data.relocate || false,
-          visaSponsorship: data.visaSponsorship || false,
-          lastActive: data.lastActive || null,
-          profileCompleted: data.profileCompleted || false,
-          matchScore
+        candidatesSnapshot.forEach((doc) => {
+          const data = doc.data();
+          
+          // Add all skills to the set for filter options
+          (data.skills as string[] | undefined)?.forEach((skill: string) => allSkills.add(skill));
+          
+          // Add random match score for demo purposes (in a real app this would be calculated)
+          const matchScore = Math.floor(Math.random() * 30) + 70; // Score between 70-99
+          
+          // Make sure to handle missing fields with defaults
+          candidatesList.push({
+            id: doc.id,
+            userId: data.userId || '',
+            name: data.name || 'Anonymous Candidate',
+            email: data.email || '',
+            phone: data.phone || '',
+            location: data.location || 'Remote',
+            title: data.title || 'Professional',
+            experience: data.experience || 0,
+            skills: data.skills || [],
+            education: data.education || [],
+            workHistory: data.workHistory || [],
+            bio: data.bio || '',
+            avatarUrl: data.avatarUrl || '',
+            linkedInUrl: data.linkedInUrl || '',
+            githubUrl: data.githubUrl || '',
+            portfolioUrl: data.portfolioUrl || '',
+            availability: data.availability || 'Available',
+            remote: data.remote || false,
+            relocate: data.relocate || false,
+            visaSponsorship: data.visaSponsorship || false,
+            lastActive: data.lastActive || null,
+            profileCompleted: data.profileCompleted || false,
+            matchScore
+          });
         });
-      });
-      
-      setCandidates(candidatesList);
-      setFilteredCandidates(candidatesList);
-      setSkillOptions(Array.from(allSkills) as string[]);
-      
-      if (candidatesSnapshot.docs.length > 0) {
-        setLastVisible(candidatesSnapshot.docs[candidatesSnapshot.docs.length - 1]);
-      } else {
-        setHasMore(false);
+        
+        setCandidates(candidatesList);
+        setFilteredCandidates(candidatesList);
+        setSkillOptions(Array.from(allSkills) as string[]);
+        
+        if (candidatesSnapshot.docs.length > 0) {
+          setLastVisible(candidatesSnapshot.docs[candidatesSnapshot.docs.length - 1]);
+        } else {
+          setHasMore(false);
+        }
+      } catch (error) {
+        console.error("Error fetching candidates:", error);
+        setError("Failed to load candidates. Please try again.");
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error("Error fetching candidates:", error);
-      setError("Failed to load candidates. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  fetchUserRoleAndData();
-}, [user, authLoading, router]);
+    };
+    
+    fetchUserRoleAndData();
+  }, [user, authLoading, router]);
   
   // Load more candidates
   const handleLoadMore = async () => {
@@ -324,94 +324,96 @@ useEffect(() => {
     }
   };
   
- const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  setSearchTerm(e.target.value);
-};
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+  };
 
-const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-  const { name, value, type } = e.target;
-  
-  if (type === 'checkbox') {
-    const checked = (e.target as HTMLInputElement).checked;
-    setFilters(prev => ({
-      ...prev,
-      [name]: checked
-    }));
-  } else {
-    setFilters(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  }
-};
-
-const handleSkillFilterChange = (skill: string) => {
-  setFilters(prev => {
-    const updatedSkills = prev.skills.includes(skill)
-      ? prev.skills.filter(s => s !== skill)
-      : [...prev.skills, skill];
-      
-    return {
-      ...prev,
-      skills: updatedSkills
-    };
-  });
-};
-
-const resetFilters = () => {
-  setSearchTerm('');
-  setFilters({
-    location: '',
-    remote: false,
-    relocate: false,
-    visaSponsorship: false,
-    minExperience: '',
-    skills: [],
-    availability: ''
-  });
-  setSelectedJob('');
-};
-
-const handleViewDetails = (candidate: Candidate) => {
-  setSelectedCandidate(candidate);
-  setShowModal(true);
-};
-
-// Fixed formatting functions with proper type annotations
-const formatDate = (timestamp: any): string => {
-  if (!timestamp) return 'N/A';
-  
-  let date: Date;
-  if (timestamp.seconds) {
-    date = new Date(timestamp.seconds * 1000);
-  } else if (timestamp.toDate) {
-    date = timestamp.toDate();
-  } else {
-    try {
-      date = new Date(timestamp);
-    } catch (err) {
-      return 'Invalid date';
+  const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target;
+    
+    if (type === 'checkbox') {
+      const checked = (e.target as HTMLInputElement).checked;
+      setFilters(prev => ({
+        ...prev,
+        [name]: checked
+      }));
+    } else {
+      setFilters(prev => ({
+        ...prev,
+        [name]: value
+      }));
     }
-  }
+  };
+
+  const handleSkillFilterChange = (skill: string) => {
+    setFilters(prev => {
+      const updatedSkills = prev.skills.includes(skill)
+        ? prev.skills.filter(s => s !== skill)
+        : [...prev.skills, skill];
+        
+      return {
+        ...prev,
+        skills: updatedSkills
+      };
+    });
+  };
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setFilters({
+      location: '',
+      remote: false,
+      relocate: false,
+      visaSponsorship: false,
+      minExperience: '',
+      skills: [],
+      availability: ''
+    });
+    setSelectedJob('');
+  };
+
+  const handleViewDetails = (candidate: Candidate) => {
+    setSelectedCandidate(candidate);
+    setShowModal(true);
+  };
+
+  // Fixed formatting functions with proper type annotations
+  const formatDate = (timestamp: any): string => {
+    if (!timestamp) return 'N/A';
+    
+    let date: Date;
+    if (timestamp.seconds) {
+      date = new Date(timestamp.seconds * 1000);
+    } else if (timestamp.toDate) {
+      date = timestamp.toDate();
+    } else {
+      try {
+        date = new Date(timestamp);
+      } catch (err) {
+        return 'Invalid date';
+      }
+    }
+    
+    return date.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'short'
+    });
+  };
+
+  const formatExperience = (years: number): string => {
+    if (years < 1) {
+      return '< 1 year';
+    } else if (years === 1) {
+      return '1 year';
+    } else {
+      return `${years} years`;
+    }
+  };
+
+  // Fixed apply filters function
   
-  return date.toLocaleDateString('en-US', { 
-    year: 'numeric', 
-    month: 'short'
-  });
-};
-
-const formatExperience = (years: number): string => {
-  if (years < 1) {
-    return '< 1 year';
-  } else if (years === 1) {
-    return '1 year';
-  } else {
-    return `${years} years`;
-  }
-};
-
-// Fixed apply filters function
-const applyFilters = (candidatesToFilter: Candidate[] = candidates) => {
+// Updated applyFilters function with dependencies
+const applyFilters = useCallback((candidatesToFilter: Candidate[] = candidates) => {
   let filtered = [...candidatesToFilter];
   
   // Apply search term
@@ -471,7 +473,16 @@ const applyFilters = (candidatesToFilter: Candidate[] = candidates) => {
   }
   
   setFilteredCandidates(filtered);
-};
+}, [candidates, searchTerm, filters, selectedJob]);
+
+// Then use this updated filter function with useEffect
+useEffect(() => {
+  applyFilters();
+}, [applyFilters]);
+
+useEffect(() => {
+  applyFilters();
+}, [searchTerm, filters, selectedJob]);
   
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -726,7 +737,7 @@ const applyFilters = (candidatesToFilter: Candidate[] = candidates) => {
             <p className="mt-1 text-sm text-gray-500">
               {candidates.length > 0 
                 ? 'Try adjusting your search or filter criteria.' 
-                : 'There are no candidate profiles in the database yet. Applicants need to complete their profiles to appear here.'}
+                : 'There are no candidate profiles inthe database yet. Applicants need to complete their profiles to appear here.'}
             </p>
             <div className="mt-6">
               {candidates.length > 0 && (
@@ -846,29 +857,16 @@ const applyFilters = (candidatesToFilter: Candidate[] = candidates) => {
                       View Profile
                     </button>
                     
-                    <div className="flex space-x-2">
-                      <Link
-                        href={`/recruiter/messages?to=${candidate.id}`}
-                        className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                      >
-                        <svg className="h-4 w-4 text-gray-500 mr-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                          <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
-                          <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
-                        </svg>
-                        Message
-                      </Link>
-                      
-                      <div className="relative inline-block text-left">
-                        <button 
-                          type="button"
-                          className="inline-flex items-center px-2 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                        >
-                          <svg className="h-4 w-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
+                    <Link
+                      href={`/recruiter/messages?to=${candidate.id}`}
+                      className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                    >
+                      <svg className="h-4 w-4 text-gray-500 mr-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                        <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                      </svg>
+                      Message
+                    </Link>
                   </div>
                 </div>
               </motion.div>
@@ -1057,7 +1055,7 @@ const applyFilters = (candidatesToFilter: Candidate[] = candidates) => {
                         )}
                       </div>
                       
-                      <div className="mt-6 flex flex-col space-y-3">
+                      <div className="mt-6">
                         <Link
                           href={`/recruiter/messages?to=${selectedCandidate.id}`}
                           className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
@@ -1068,15 +1066,6 @@ const applyFilters = (candidatesToFilter: Candidate[] = candidates) => {
                           </svg>
                           Message Candidate
                         </Link>
-                        
-                        <button
-                          className="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                        >
-                          <svg className="h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z" />
-                          </svg>
-                          Add to Talent Pool
-                        </button>
                       </div>
                     </div>
                     
@@ -1163,8 +1152,7 @@ const applyFilters = (candidatesToFilter: Candidate[] = candidates) => {
                                   <p className="text-sm text-gray-500">Graduated: {edu.year}</p>
                                 </div>
                               </div>
-                            ))}
-                          </div>
+                            ))}</div>
                         ) : (
                           <p className="text-sm text-gray-500">No education listed</p>
                         )}
@@ -1181,27 +1169,6 @@ const applyFilters = (candidatesToFilter: Candidate[] = candidates) => {
                   >
                     Close
                   </button>
-                  
-                  <div className="flex space-x-3">
-                    <Link
-                      href={`/recruiter/messages?to=${selectedCandidate.id}`}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                    >
-                      Message
-                    </Link>
-                    
-                    <div className="relative inline-block text-left">
-                      <button 
-                        type="button"
-                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                      >
-                        Actions
-                        <svg className="ml-1 -mr-1 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
                 </div>
               </motion.div>
             </div>

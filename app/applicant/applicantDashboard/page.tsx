@@ -1089,7 +1089,7 @@ const getSampleStatusData = (): StatusData[] => {
                 Keep your profile updated to improve job matches and application success.
               </p>
               <Link 
-                href="/applicant/profile" 
+                href="/applicant/profilePage" 
                 className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700"
               >
                 Edit Profile
@@ -1109,7 +1109,7 @@ const getSampleStatusData = (): StatusData[] => {
                 Create or optimize your resume with our AI tools to stand out to employers.
               </p>
               <Link 
-                href="/applicant/resume/new" 
+                href="/applicant/resume-builder" 
                 className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
               >
                 Build Resume

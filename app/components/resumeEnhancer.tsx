@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '@/app/lib/firebase';
 import ResumeViewer from './resumeViewer';
 
@@ -10,8 +10,9 @@ interface ResumeEnhancerProps {
   jobId: string;
   onClose: () => void;
   onEnhanceComplete: (enhancedResumeId: string, enhancedData?: any) => void;
-  uploadedResume?: any; // Added to accept parsed resume data
-  resumeFile?: File | null; // Added to accept the original file
+  uploadedResume?: any; // Parsed resume data from upload
+  resumeFile?: File | null; // Original uploaded file
+  defaultResumeId?: string; // ID of default resume from user profile
 }
 
 interface ChangeHighlight {
@@ -27,7 +28,8 @@ export default function ResumeEnhancer({
   onClose,
   onEnhanceComplete,
   uploadedResume,
-  resumeFile
+  resumeFile,
+  defaultResumeId
 }: ResumeEnhancerProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [job, setJob] = useState<any>(null);
@@ -43,10 +45,14 @@ export default function ResumeEnhancer({
   const [showResumeViewer, setShowResumeViewer] = useState(false);
   const [resumeForViewing, setResumeForViewing] = useState<any>(null);
   const [skipResumeSelection, setSkipResumeSelection] = useState(false);
+  const [userResumes, setUserResumes] = useState<any[]>([]);
+  const [profileResume, setProfileResume] = useState<any>(null);
+  const [isLoadingProfileResume, setIsLoadingProfileResume] = useState(false);
+  const [localResumeFile, setResumeFile] = useState<File | null>(resumeFile || null);
 
-  // Fetch job details
+  // Fetch job details and user's resume data
   useEffect(() => {
-    const fetchJobData = async () => {
+    const fetchData = async () => {
       setIsLoading(true);
       
       try {
@@ -78,10 +84,14 @@ export default function ResumeEnhancer({
           });
         }
         
-        // If uploaded resume data is provided, we can skip the resume selection step
+        // If uploaded resume data is provided, use it
         if (uploadedResume) {
           setSkipResumeSelection(true);
           setOriginalResume(uploadedResume);
+        } 
+        // Otherwise try to get resume from user profile
+        else if (!uploadedResume && !resumeFile) {
+          await loadProfileResume(user.uid, defaultResumeId);
         }
         
       } catch (error) {
@@ -95,8 +105,175 @@ export default function ResumeEnhancer({
       }
     };
     
-    fetchJobData();
-  }, [jobId, uploadedResume]);
+    fetchData();
+  }, [jobId, uploadedResume, defaultResumeId]);
+
+  // Load the user's profile resume
+  const loadProfileResume = async (userId: string, defaultResumeId?: string) => {
+  setIsLoadingProfileResume(true);
+  try {
+    // Get profile document from candidateProfiles collection
+    const profileDoc = await getDoc(doc(db, "candidateProfiles", userId));
+    
+    if (profileDoc.exists()) {
+      const profileData = profileDoc.data();
+      
+      // If user has a resume URL, fetch and parse it
+      if (profileData.resumeUrl) {
+        try {
+          // Use the proxy API route to fetch the resume file
+          const proxyUrl = `/api/proxy-file?url=${encodeURIComponent(profileData.resumeUrl)}`;
+          const response = await fetch(proxyUrl);
+          
+          if (!response.ok) {
+            throw new Error(`Failed to fetch resume: ${response.status}`);
+          }
+          
+          const blob = await response.blob();
+          
+          // Create a file object from the blob
+          const resumeFile = new File(
+            [blob], 
+            profileData.resumeName || 'resume.pdf', 
+            { type: blob.type }
+          );
+          
+          // Create form data to send to the resume-parser API
+          const formData = new FormData();
+          formData.append('file', resumeFile);
+          
+          // Call the resume-parser API
+          const parserResponse = await fetch('/api/resume-parser', {
+            method: 'POST',
+            body: formData
+          });
+          
+          if (!parserResponse.ok) {
+            throw new Error(`Resume parsing failed with status: ${parserResponse.status}`);
+          }
+          
+          const parserResult = await parserResponse.json();
+          
+          if (!parserResult.success) {
+            throw new Error(parserResult.error || 'Failed to parse resume');
+          }
+          
+          // Create a resume object with the parsed data
+          const resumeObj = {
+            id: parserResult.id || `resume_${Date.now()}`,
+            name: profileData.resumeName || 'Profile Resume',
+            data: parserResult.data,
+            createdAt: new Date(profileData.resumeUpdatedAt || Date.now()),
+            updatedAt: new Date(profileData.resumeUpdatedAt || Date.now()),
+            isAiEnhanced: false,
+            resumeUrl: profileData.resumeUrl
+          };
+          
+          setProfileResume(resumeObj);
+          setOriginalResume(resumeObj.data);
+          setSkipResumeSelection(true);
+          
+          // Also create a local resume file for reference
+          if (resumeFile) {
+            setResumeFile(resumeFile);
+          }
+          
+          setNotification({
+            type: 'success',
+            message: 'Successfully loaded and parsed your resume'
+          });
+          
+        } catch (error) {
+          console.error("Error parsing resume:", error);
+          setNotification({
+            type: 'error',
+            message: 'Failed to parse your resume. Please try uploading it again.'
+          });
+        }
+      } else {
+        // Check if user has resumes stored in an alternate format
+        if (profileData.resumes && Array.isArray(profileData.resumes) && profileData.resumes.length > 0) {
+          setUserResumes(profileData.resumes);
+          
+          // If a specific resume ID is provided, use that one
+          if (defaultResumeId) {
+            const defaultResume = profileData.resumes.find((resume: any) => resume.id === defaultResumeId);
+            if (defaultResume) {
+              setProfileResume(defaultResume);
+              setOriginalResume(defaultResume.data);
+              setSkipResumeSelection(true);
+            }
+          } 
+          // Otherwise use the most recent one
+          else {
+            const mostRecentResume = profileData.resumes[profileData.resumes.length - 1];
+              
+            if (mostRecentResume) {
+              setProfileResume(mostRecentResume);
+              setOriginalResume(mostRecentResume.data);
+              setSkipResumeSelection(true);
+            }
+          }
+        } else {
+          // As a fallback, try fetching from the users collection
+          try {
+            const userDoc = await getDoc(doc(db, "users", userId));
+            
+            if (userDoc.exists()) {
+              const userData = userDoc.data();
+              
+              if (userData.resumes && Array.isArray(userData.resumes) && userData.resumes.length > 0) {
+                setUserResumes(userData.resumes);
+                
+                // If a specific resume ID is provided, use that one
+                if (defaultResumeId) {
+                  const defaultResume = userData.resumes.find((resume: any) => resume.id === defaultResumeId);
+                  if (defaultResume) {
+                    setProfileResume(defaultResume);
+                    setOriginalResume(defaultResume.data);
+                    setSkipResumeSelection(true);
+                  }
+                } 
+                // Otherwise use the default or most recent
+                else {
+                  const defaultResume = userData.defaultResumeId 
+                    ? userData.resumes.find((resume: any) => resume.id === userData.defaultResumeId)
+                    : userData.resumes[userData.resumes.length - 1];
+                    
+                  if (defaultResume) {
+                    setProfileResume(defaultResume);
+                    setOriginalResume(defaultResume.data);
+                    setSkipResumeSelection(true);
+                  }
+                }
+              } else {
+                setNotification({
+                  type: 'warning',
+                  message: 'No resumes found in your profile. Please upload a resume.'
+                });
+              }
+            }
+          } catch (error) {
+            console.error("Error checking users collection:", error);
+          }
+        }
+      }
+    } else {
+      setNotification({
+        type: 'warning',
+        message: 'Profile not found. Please complete your profile first.'
+      });
+    }
+  } catch (error) {
+    console.error("Error loading profile resume:", error);
+    setNotification({
+      type: 'error',
+      message: 'Failed to load your profile resume'
+    });
+  } finally {
+    setIsLoadingProfileResume(false);
+  }
+};
 
   // Start enhancement process
   const enhanceResume = async () => {
@@ -108,7 +285,7 @@ export default function ResumeEnhancer({
       return;
     }
     
-    if (!originalResume && !uploadedResume) {
+    if (!originalResume && !uploadedResume && !profileResume) {
       setNotification({
         type: 'error',
         message: 'Resume data not available for enhancement'
@@ -141,7 +318,12 @@ export default function ResumeEnhancer({
     }, 300);
     
     try {
-      const resumeToEnhance = originalResume || uploadedResume;
+      // Prioritize order: uploadedResume > originalResume > profileResume.data
+      const resumeToEnhance = uploadedResume || originalResume || (profileResume ? profileResume.data : null);
+      
+      if (!resumeToEnhance) {
+        throw new Error('No resume data available for enhancement');
+      }
       
       const payload = {
         resume: resumeToEnhance,
@@ -179,6 +361,11 @@ export default function ResumeEnhancer({
       const enhancedResumeData = result.data;
       const highlights = generateChangeHighlights(resumeToEnhance, enhancedResumeData, job);
       
+      // Determine source filename
+      const originalFileName = 
+        resumeFile?.name || 
+        (profileResume ? profileResume.name || 'Profile Resume' : 'Original Resume');
+      
       const enhancedResumeObj = {
         id: `resume_${Date.now()}`,
         name: `${job.title} at ${job.company} - Optimized Resume`,
@@ -187,7 +374,7 @@ export default function ResumeEnhancer({
         updatedAt: new Date(),
         isAiEnhanced: true,
         originalResumeData: resumeToEnhance,
-        resumeFileName: resumeFile?.name || 'uploaded-resume',
+        resumeFileName: originalFileName,
         changeHighlights: highlights,
         jobId: jobId,
         jobTitle: job.title,
@@ -341,15 +528,22 @@ export default function ResumeEnhancer({
 
   // Handle preview actions
   const handlePreviewOriginal = () => {
+    let resumeObj;
+    
     if (originalResume || uploadedResume) {
-      const resumeObj = {
+      resumeObj = {
         id: 'original_resume',
-        name: resumeFile?.name || 'Original Resume',
+        name: resumeFile?.name || (profileResume ? profileResume.name : 'Original Resume'),
         data: originalResume || uploadedResume,
         createdAt: new Date(),
         updatedAt: new Date(),
         isAiEnhanced: false
       };
+    } else if (profileResume) {
+      resumeObj = profileResume;
+    }
+    
+    if (resumeObj) {
       setResumeForViewing(resumeObj);
       setShowResumeViewer(true);
     }
@@ -377,7 +571,7 @@ export default function ResumeEnhancer({
 
   // Auto-start enhancement if resume is provided
   useEffect(() => {
-    if (skipResumeSelection && job && originalResume && !enhancing && !enhancedResume && !showPreview) {
+    if (skipResumeSelection && job && (originalResume || uploadedResume || profileResume) && !enhancing && !enhancedResume && !showPreview) {
       // Start enhancement automatically after a small delay
       const timer = setTimeout(() => {
         enhanceResume();
@@ -385,7 +579,7 @@ export default function ResumeEnhancer({
       
       return () => clearTimeout(timer);
     }
-  }, [skipResumeSelection, job, originalResume, enhancing, enhancedResume, showPreview]);
+  }, [skipResumeSelection, job, originalResume, uploadedResume, profileResume, enhancing, enhancedResume, showPreview]);
 
   // Render the changes preview
   const renderChangesPreview = () => {
@@ -414,23 +608,26 @@ export default function ResumeEnhancer({
           </button>
         </div>
         
-        {activeTab === 'original' && (originalResume || uploadedResume) && (
+        {activeTab === 'original' && (originalResume || uploadedResume || profileResume) && (
           <div className="space-y-4">
             <h4 className="font-medium text-gray-700">Original Resume</h4>
             <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 max-h-80 overflow-y-auto">
               {/* Summary */}
-              {(originalResume || uploadedResume).summary && (
+              {(originalResume || uploadedResume || (profileResume && profileResume.data)).summary && (
                 <div className="mb-4">
                   <h5 className="font-medium text-gray-900">Summary</h5>
-                  <p className="text-gray-700">{(originalResume || uploadedResume).summary}</p>
+                  <p className="text-gray-700">
+                    {(originalResume || uploadedResume || profileResume.data).summary}
+                  </p>
                 </div>
               )}
               
               {/* Experience */}
-              {(originalResume || uploadedResume).experience && (originalResume || uploadedResume).experience.length > 0 && (
+              {(originalResume || uploadedResume || (profileResume && profileResume.data)).experience && 
+               (originalResume || uploadedResume || (profileResume && profileResume.data)).experience.length > 0 && (
                 <div className="mb-4">
                   <h5 className="font-medium text-gray-900">Experience</h5>
-                  {(originalResume || uploadedResume).experience.map((exp: any, i: number) => (
+                  {(originalResume || uploadedResume || profileResume.data).experience.map((exp: any, i: number) => (
                     <div key={i} className="mb-2">
                       <div className="font-medium">{exp.title} at {exp.company}</div>
                       <div className="text-sm text-gray-500">{exp.startDate} - {exp.endDate || 'Present'}</div>
@@ -448,13 +645,13 @@ export default function ResumeEnhancer({
               )}
               
               {/* Skills */}
-              {(originalResume || uploadedResume).skills && (
+              {(originalResume || uploadedResume || (profileResume && profileResume.data)).skills && (
                 <div>
                   <h5 className="font-medium text-gray-900">Skills</h5>
                   <p className="text-gray-700">
-                    {Array.isArray((originalResume || uploadedResume).skills) 
-                      ? (originalResume || uploadedResume).skills.join(', ') 
-                      : (originalResume || uploadedResume).skills}
+                    {Array.isArray((originalResume || uploadedResume || profileResume.data).skills) 
+                      ? (originalResume || uploadedResume || profileResume.data).skills.join(', ') 
+                      : (originalResume || uploadedResume || profileResume.data).skills}
                   </p>
                 </div>
               )}
@@ -597,6 +794,153 @@ export default function ResumeEnhancer({
     );
   };
 
+  // Render resume select section
+  const renderResumeSelect = () => {
+    if (isLoadingProfileResume) {
+      return (
+        <div className="py-6 flex justify-center">
+          <svg className="animate-spin h-8 w-8 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+      );
+    }
+
+    if (userResumes.length === 0 && !uploadedResume && !originalResume) {
+      return (
+        <div className="py-6 text-center">
+          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <h3 className="mt-2 text-sm font-medium text-gray-900">No resumes found</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Please upload a resume from your profile page or use the resume uploader below.
+          </p>
+        </div>
+      );
+    }
+
+    // If profile resume is already selected, show that
+    if (profileResume && !uploadedResume && !resumeFile) {
+      return (
+        <div className="py-4">
+          <h3 className="text-sm font-medium text-gray-900 mb-3">Resume from your profile</h3>
+          <div className="border border-indigo-200 bg-indigo-50 rounded-lg p-4 flex items-center justify-between">
+            <div className="flex items-center">
+              <svg className="h-8 w-8 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <div className="ml-3">
+                <p className="text-sm font-medium text-gray-900">{profileResume.name}</p>
+                <p className="text-xs text-gray-500">
+                  Last updated: {profileResume.updatedAt ? new Date(profileResume.updatedAt.seconds * 1000).toLocaleDateString() : 'Unknown'}
+                </p>
+              </div>
+            </div>
+            <div className="flex space-x-2">
+              <button
+                type="button"
+                onClick={handlePreviewOriginal}
+                className="text-xs text-indigo-600 hover:text-indigo-500"
+              >
+                Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Show all available user resumes to select from
+    return (
+      <div className="py-4">
+        <h3 className="text-sm font-medium text-gray-900 mb-3">Your resumes</h3>
+        <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+          {userResumes.map((resume) => (
+            <div 
+              key={resume.id} 
+              className={`border ${
+                profileResume && profileResume.id === resume.id 
+                  ? 'border-indigo-500 bg-indigo-50' 
+                  : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
+              } rounded-lg p-3 flex items-center justify-between cursor-pointer transition-colors`}
+              onClick={() => {
+                setProfileResume(resume);
+                setOriginalResume(resume.data);
+                setSkipResumeSelection(true);
+              }}
+            >
+              <div className="flex items-center">
+                <svg className={`h-6 w-6 ${
+                  profileResume && profileResume.id === resume.id 
+                    ? 'text-indigo-500' 
+                    : 'text-gray-400'
+                }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-900">{resume.name}</p>
+                  <p className="text-xs text-gray-500">
+                    {resume.updatedAt ? new Date(resume.updatedAt.seconds * 1000).toLocaleDateString() : 'Unknown date'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-3">
+                {resume.isAiEnhanced && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800">
+                    Enhanced
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const resumeObj = { ...resume };
+                    setResumeForViewing(resumeObj);
+                    setShowResumeViewer(true);
+                  }}
+                  className="text-xs text-indigo-600 hover:text-indigo-500"
+                >
+                  Preview
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Upload new resume option */}
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <input 
+            type="file" 
+            id="resume-upload" 
+            className="hidden" 
+            accept=".pdf,.doc,.docx"
+            onChange={async (e) => {
+              if (e.target.files && e.target.files[0]) {
+                setResumeFile(e.target.files[0]);
+                // Here you would typically call your resume parsing API
+                setNotification({
+                  type: 'info',
+                  message: 'Resume uploaded. Click "Enhance Resume" to continue.'
+                });
+              }
+            }}
+          />
+          <label 
+            htmlFor="resume-upload"
+            className="inline-flex justify-center items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 cursor-pointer"
+          >
+            <svg className="mr-2 h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+            Upload a new resume instead
+          </label>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50 p-4">
@@ -626,6 +970,7 @@ export default function ResumeEnhancer({
             <div className={`m-4 p-3 rounded-md ${
               notification.type === 'success' ? 'bg-green-50 text-green-800' : 
               notification.type === 'error' ? 'bg-red-50 text-red-800' :
+              notification.type === 'warning' ? 'bg-yellow-50 text-yellow-800' :
               'bg-blue-50 text-blue-800'
             }`}>
               <div className="flex">
@@ -637,6 +982,10 @@ export default function ResumeEnhancer({
                   ) : notification.type === 'error' ? (
                     <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  ) : notification.type === 'warning' ? (
+                    <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
                   ) : (
                     <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
@@ -733,13 +1082,16 @@ export default function ResumeEnhancer({
                   </div>
                 )}
                 
-                {skipResumeSelection && uploadedResume ? (
+                {(skipResumeSelection && (originalResume || uploadedResume || profileResume)) ? (
                   <div className="mb-6">
                     <h3 className="text-md font-medium text-gray-900 mb-3">Your Resume</h3>
                     <div className="p-3 rounded-lg cursor-pointer border transition-colors bg-indigo-50 border-indigo-300">
                       <div className="flex items-start justify-between">
                         <div>
-                          <div className="font-medium text-gray-900">{resumeFile?.name || 'Uploaded Resume'}</div>
+                          <div className="font-medium text-gray-900">
+                            {resumeFile?.name || 
+                             (profileResume ? profileResume.name : 'Your Resume')}
+                          </div>
                           <div className="text-xs text-gray-500 mt-1">
                             Ready for enhancement
                           </div>
@@ -751,18 +1103,7 @@ export default function ResumeEnhancer({
                     </div>
                   </div>
                 ) : (
-                  <div className="mb-6">
-                    <h3 className="text-md font-medium text-gray-900 mb-3">Your resume is being prepared for enhancement</h3>
-                    <div className="bg-gray-50 rounded-lg p-4 text-center">
-                      <svg className="animate-spin h-10 w-10 text-indigo-600 mx-auto" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      <p className="mt-2 text-sm text-gray-600">
-                        Please wait while we prepare your resume for enhancement...
-                      </p>
-                    </div>
-                  </div>
+                  renderResumeSelect()
                 )}
                 
                 <div className="bg-gray-50 rounded-lg p-4 mb-4">
@@ -816,9 +1157,23 @@ export default function ResumeEnhancer({
             {!enhancing && !isLoading && !showPreview && !skipResumeSelection && (
               <button
                 onClick={enhanceResume}
-                disabled={!originalResume || !job}
+                disabled={!originalResume && !profileResume && !uploadedResume || !job}
                 className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                  !originalResume || !job
+                  (!originalResume && !profileResume && !uploadedResume) || !job
+                    ? 'bg-indigo-400 cursor-not-allowed'
+                    : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                }`}
+              >
+                Enhance Resume with AI
+              </button>
+            )}
+            
+            {!enhancing && !isLoading && !showPreview && skipResumeSelection && (
+              <button
+                onClick={enhanceResume}
+                disabled={(!originalResume && !profileResume && !uploadedResume) || !job}
+                className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                  (!originalResume && !profileResume && !uploadedResume) || !job
                     ? 'bg-indigo-400 cursor-not-allowed'
                     : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
                 }`}

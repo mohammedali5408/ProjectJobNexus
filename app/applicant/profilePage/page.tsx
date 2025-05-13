@@ -27,6 +27,39 @@ interface WorkHistory {
   description: string;
 }
 
+// Interface for profile data
+interface ProfileData {
+  name: string;
+  email: string;
+  phone: string;
+  location: string;
+  title: string;
+  experience: number;
+  skills: string[];
+  newSkill: string;
+  education: Education[];
+  workHistory: WorkHistory[];
+  bio: string;
+  avatarUrl: string;
+  linkedInUrl: string;
+  githubUrl: string;
+  portfolioUrl: string;
+  availability: string;
+  remote: boolean;
+  relocate: boolean;
+  visaSponsorship: boolean;
+  profileCompleted: boolean;
+  resumeUrl?: string | null;
+  resumeName?: string | null;
+  resumeUpdatedAt?: number | null;
+}
+
+// Type for message state
+interface Message {
+  type: string;
+  text: string;
+}
+
 export default function ApplicantProfilePage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
@@ -38,47 +71,54 @@ export default function ApplicantProfilePage() {
   
   // Profile data state
   const [profileData, setProfileData] = useState<ProfileData>({
-  name: '',
-  email: '',
-  phone: '',
-  location: '',
-  title: '',
-  experience: 0,
-  skills: [],
-  newSkill: '',
-  education: [
-    {
-      institution: '',
-      degree: '',
-      field: '',
-      year: ''
-    }
-  ],
-  workHistory: [
-    {
-      company: '',
-      position: '',
-      startDate: '',
-      endDate: '',
-      description: ''
-    }
-  ],
-  bio: '',
-  avatarUrl: '',
-  linkedInUrl: '',
-  githubUrl: '',
-  portfolioUrl: '',
-  availability: 'Immediately',
-  remote: false,
-  relocate: false,
-  visaSponsorship: false,
-  profileCompleted: false
-});
+    name: '',
+    email: '',
+    phone: '',
+    location: '',
+    title: '',
+    experience: 0,
+    skills: [],
+    newSkill: '',
+    education: [
+      {
+        institution: '',
+        degree: '',
+        field: '',
+        year: ''
+      }
+    ],
+    workHistory: [
+      {
+        company: '',
+        position: '',
+        startDate: '',
+        endDate: '',
+        description: ''
+      }
+    ],
+    bio: '',
+    avatarUrl: '',
+    linkedInUrl: '',
+    githubUrl: '',
+    portfolioUrl: '',
+    availability: 'Immediately',
+    remote: false,
+    relocate: false,
+    visaSponsorship: false,
+    profileCompleted: false,
+    resumeUrl: null,
+    resumeName: null,
+    resumeUpdatedAt: null
+  });
 
-  
   // Avatar handling states
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
-const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [previewUrl, setPreviewUrl] = useState<string>('');
+  
+  // Resume handling states
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [resumeUrl, setResumeUrl] = useState<string | null>(null);
+  const [resumeName, setResumeName] = useState<string | null>(null);
 
   // Fetch profile data
   useEffect(() => {
@@ -120,6 +160,9 @@ const [previewUrl, setPreviewUrl] = useState<string>('');
             remote: data.remote || false,
             relocate: data.relocate || false,
             visaSponsorship: data.visaSponsorship || false,
+            resumeUrl: data.resumeUrl || null,
+            resumeName: data.resumeName || null,
+            resumeUpdatedAt: data.resumeUpdatedAt || null,
             newSkill: ''
           }));
         } else {
@@ -146,167 +189,138 @@ const [previewUrl, setPreviewUrl] = useState<string>('');
   }, [user, authLoading, router]);
 
   // Handle avatar file selection
-  // Interface for education item
-interface Education {
-  institution: string;
-  degree: string;
-  field: string;
-  year: string;
-}
-
-// Interface for work history item
-interface WorkHistory {
-  company: string;
-  position: string;
-  startDate: string;
-  endDate: string;
-  description: string;
-}
-
-// Interface for profile data
-interface ProfileData {
-  name: string;
-  email: string;
-  phone: string;
-  location: string;
-  title: string;
-  experience: number;
-  skills: string[];
-  newSkill: string;
-  education: Education[];
-  workHistory: WorkHistory[];
-  bio: string;
-  avatarUrl: string;
-  linkedInUrl: string;
-  githubUrl: string;
-  portfolioUrl: string;
-  availability: string;
-  remote: boolean;
-  relocate: boolean;
-  visaSponsorship: boolean;
-  profileCompleted: boolean;
-}
-
-// Type for message state
-interface Message {
-  type: string;
-  text: string;
-}
-
-
-  // Handle input changes
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (file) {
-    setAvatarFile(file);
-    const fileReader = new FileReader();
-    fileReader.onload = (e: ProgressEvent<FileReader>) => {
-      setPreviewUrl(e.target?.result as string);
-    };
-    fileReader.readAsDataURL(file);
-  }
-};
+    const file = e.target.files?.[0];
+    if (file) {
+      setAvatarFile(file);
+      const fileReader = new FileReader();
+      fileReader.onload = (e: ProgressEvent<FileReader>) => {
+        setPreviewUrl(e.target?.result as string);
+      };
+      fileReader.readAsDataURL(file);
+    }
+  };
 
-// Fix event handling with proper types
-const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-  const { name, value, type } = e.target;
-  let fieldValue: string | boolean = value;
-  if (type === 'checkbox' && 'checked' in e.target) {
-    fieldValue = (e.target as HTMLInputElement).checked;
-  }
-  setProfileData(prevState => ({
-    ...prevState,
-    [name]: fieldValue
-  }));
-};
+  // Handle resume file selection
+  const handleResumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage({
+        type: 'error',
+        text: 'Resume file size must be less than 5MB'
+      });
+      return;
+    }
+    
+    setResumeFile(file);
+    setResumeName(file.name);
+    setMessage({
+      type: 'info',
+      text: 'Resume uploaded. It will be saved when you submit the form.'
+    });
+  };
 
+  // Fix event handling with proper types
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target;
+    let fieldValue: string | boolean = value;
+    if (type === 'checkbox' && 'checked' in e.target) {
+      fieldValue = (e.target as HTMLInputElement).checked;
+    }
+    setProfileData(prevState => ({
+      ...prevState,
+      [name]: fieldValue
+    }));
+  };
 
   // Handle skills
   const addSkill = () => {
-  if (profileData.newSkill.trim() && !profileData.skills.includes(profileData.newSkill.trim())) {
-    setProfileData(prevState => ({
-      ...prevState,
-      skills: [...prevState.skills, prevState.newSkill.trim()],
-      newSkill: ''
-    }));
-  }
-};
+    if (profileData.newSkill.trim() && !profileData.skills.includes(profileData.newSkill.trim())) {
+      setProfileData(prevState => ({
+        ...prevState,
+        skills: [...prevState.skills, prevState.newSkill.trim()],
+        newSkill: ''
+      }));
+    }
+  };
 
   const removeSkill = (skillToRemove: string) => {
-  setProfileData(prevState => ({
-    ...prevState,
-    skills: prevState.skills.filter(skill => skill !== skillToRemove)
-  }));
-};
+    setProfileData(prevState => ({
+      ...prevState,
+      skills: prevState.skills.filter(skill => skill !== skillToRemove)
+    }));
+  };
 
   // Handle education
- const addEducation = () => {
-  setProfileData(prevState => ({
-    ...prevState,
-    education: [
-      ...prevState.education,
-      {
-        institution: '',
-        degree: '',
-        field: '',
-        year: ''
-      }
-    ]
-  }));
-};
+  const addEducation = () => {
+    setProfileData(prevState => ({
+      ...prevState,
+      education: [
+        ...prevState.education,
+        {
+          institution: '',
+          degree: '',
+          field: '',
+          year: ''
+        }
+      ]
+    }));
+  };
 
-const removeEducation = (index: number) => {
-  const updatedEducation = [...profileData.education];
-  updatedEducation.splice(index, 1);
-  setProfileData(prevState => ({
-    ...prevState,
-    education: updatedEducation
-  }));
-};
+  const removeEducation = (index: number) => {
+    const updatedEducation = [...profileData.education];
+    updatedEducation.splice(index, 1);
+    setProfileData(prevState => ({
+      ...prevState,
+      education: updatedEducation
+    }));
+  };
 
-const handleEducationChange = (index: number, field: keyof Education, value: string) => {
-  const updatedEducation = [...profileData.education];
-  updatedEducation[index][field] = value;
-  setProfileData(prevState => ({
-    ...prevState,
-    education: updatedEducation
-  }));
-};
+  const handleEducationChange = (index: number, field: keyof Education, value: string) => {
+    const updatedEducation = [...profileData.education];
+    updatedEducation[index][field] = value;
+    setProfileData(prevState => ({
+      ...prevState,
+      education: updatedEducation
+    }));
+  };
 
-// Fix work history handlers with proper types
-const addWorkHistory = () => {
-  setProfileData(prevState => ({
-    ...prevState,
-    workHistory: [
-      ...prevState.workHistory,
-      {
-        company: '',
-        position: '',
-        startDate: '',
-        endDate: '',
-        description: ''
-      }
-    ]
-  }));
-};
+  // Fix work history handlers with proper types
+  const addWorkHistory = () => {
+    setProfileData(prevState => ({
+      ...prevState,
+      workHistory: [
+        ...prevState.workHistory,
+        {
+          company: '',
+          position: '',
+          startDate: '',
+          endDate: '',
+          description: ''
+        }
+      ]
+    }));
+  };
 
-const removeWorkHistory = (index: number) => {
-  const updatedWorkHistory = [...profileData.workHistory];
-  updatedWorkHistory.splice(index, 1);
-  setProfileData(prevState => ({
-    ...prevState,
-    workHistory: updatedWorkHistory
-  }));
-};
+  const removeWorkHistory = (index: number) => {
+    const updatedWorkHistory = [...profileData.workHistory];
+    updatedWorkHistory.splice(index, 1);
+    setProfileData(prevState => ({
+      ...prevState,
+      workHistory: updatedWorkHistory
+    }));
+  };
 
-const handleWorkHistoryChange = (index: number, field: keyof WorkHistory, value: string) => {
-  const updatedWorkHistory = [...profileData.workHistory];
-  updatedWorkHistory[index][field] = value;
-  setProfileData(prevState => ({
-    ...prevState,
-    workHistory: updatedWorkHistory
-  }));
-};
+  const handleWorkHistoryChange = (index: number, field: keyof WorkHistory, value: string) => {
+    const updatedWorkHistory = [...profileData.workHistory];
+    updatedWorkHistory[index][field] = value;
+    setProfileData(prevState => ({
+      ...prevState,
+      workHistory: updatedWorkHistory
+    }));
+  };
 
   // Save profile
   const handleSubmit = async (e: { preventDefault: () => void; }) => {
@@ -325,6 +339,16 @@ const handleWorkHistoryChange = (index: number, field: keyof WorkHistory, value:
         const avatarRef = ref(storage, `avatars/${user.uid}_${Date.now()}`);
         await uploadBytes(avatarRef, avatarFile);
         avatarUrl = await getDownloadURL(avatarRef);
+      }
+      
+      // Upload resume if provided
+      let resumeUrl = profileData.resumeUrl;
+      let resumeName = profileData.resumeName;
+      if (resumeFile) {
+        const resumeRef = ref(storage, `resumes/${user.uid}_${Date.now()}_${resumeFile.name}`);
+        await uploadBytes(resumeRef, resumeFile);
+        resumeUrl = await getDownloadURL(resumeRef);
+        resumeName = resumeFile.name;
       }
 
       // Check if all required fields are filled for a complete profile
@@ -369,6 +393,9 @@ const handleWorkHistoryChange = (index: number, field: keyof WorkHistory, value:
         remote: profileData.remote,
         relocate: profileData.relocate,
         visaSponsorship: profileData.visaSponsorship,
+        resumeUrl: resumeUrl || null,
+        resumeName: resumeName || null,
+        resumeUpdatedAt: resumeFile ? Date.now() : profileData.resumeUpdatedAt || null,
         lastActive: serverTimestamp(),
         profileCompleted: isProfileComplete
       };
@@ -442,7 +469,7 @@ const handleWorkHistoryChange = (index: number, field: keyof WorkHistory, value:
           className="bg-white shadow-sm rounded-lg"
         >
           {message.text && (
-            <div className={`p-4 rounded-t-lg ${message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+            <div className={`p-4 rounded-t-lg ${message.type === 'success' ? 'bg-green-50 text-green-800' : message.type === 'info' ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-800'}`}>
               {message.text}
             </div>
           )}
@@ -589,6 +616,67 @@ const handleWorkHistoryChange = (index: number, field: keyof WorkHistory, value:
                     {profileData.avatarUrl ? 'Change Photo' : 'Upload Photo'}
                   </label>
                 </div>
+              </div>
+            </div>
+            
+            {/* Resume Upload */}
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900 border-b border-gray-200 pb-2 mb-4">
+                Resume
+              </h2>
+              
+              <div className="space-y-4">
+                {(resumeUrl || profileData.resumeUrl) ? (
+                  <div className="flex items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-lg">
+                    <div>
+                      <h3 className="font-medium text-gray-900">{resumeName || profileData.resumeName || 'Your Resume'}</h3>
+                      <p className="text-sm text-gray-500 mt-1">
+                        This resume will be used for job applications
+                      </p>
+                    </div>
+                    <div className="flex space-x-2">
+                      <a
+                        href={resumeUrl || profileData.resumeUrl || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md shadow-sm text-xs font-medium text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        View
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById('resumeUpload')?.click()}
+                        className="inline-flex items-center px-3 py-1.5 border border-indigo-600 rounded-md shadow-sm text-xs font-medium text-indigo-600 bg-white hover:bg-indigo-50"
+                      >
+                        Replace
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-sm text-gray-700 mb-3">
+                      Upload your resume to make applying for jobs easier. We'll use this resume when you apply for jobs.
+                    </p>
+                    <div 
+                      onClick={() => document.getElementById('resumeUpload')?.click()}
+                      className="cursor-pointer border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-indigo-500 transition-colors"
+                    >
+                      <svg className="mx-auto h-12 w-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <h3 className="mt-2 text-sm font-medium text-gray-900">Upload your resume</h3>
+                      <p className="mt-1 text-xs text-gray-500">PDF, DOCX, or TXT (max. 5MB)</p>
+                    </div>
+                  </div>
+                )}
+                
+                <input
+                  id="resumeUpload"
+                  type="file"
+                  accept=".pdf,.docx,.doc,.txt"
+                  className="hidden"
+                  onChange={handleResumeChange}
+                />
               </div>
             </div>
             
@@ -778,7 +866,6 @@ const handleWorkHistoryChange = (index: number, field: keyof WorkHistory, value:
                   <svg className="h-4 w-4 text-gray-500 mr-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
                   </svg>
-                  Add Experience
                   Add Experience
                 </button>
               </div>

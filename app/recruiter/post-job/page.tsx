@@ -255,15 +255,20 @@ export default function PostJob() {
     }));
   };
 
-  const handleAddSkill = () => {
-    if (currentSkill.trim() && !formData.skills.includes(currentSkill.trim())) {
-      setFormData(prev => ({
-        ...prev,
-        skills: [...prev.skills, currentSkill.trim()]
-      }));
-      setCurrentSkill('');
-    }
-  };
+  const handleAddSkill = (e?: React.MouseEvent | React.KeyboardEvent) => {
+  // Prevent form submission if this was triggered by an event
+  if (e) {
+    e.preventDefault();
+  }
+  
+  if (currentSkill.trim() && !formData.skills.includes(currentSkill.trim())) {
+    setFormData(prev => ({
+      ...prev,
+      skills: [...prev.skills, currentSkill.trim()]
+    }));
+    setCurrentSkill('');
+  }
+};
 
   const handleAddSuggestedSkill = (skill: string) => {
     if (!formData.skills.includes(skill)) {
@@ -699,49 +704,55 @@ export default function PostJob() {
                   </p>
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Key Skills <span className="text-red-500">*</span>
-                  </label>
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {formData.skills.map((skill) => (
-                      <span 
-                        key={skill} 
-                        className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-indigo-100 text-indigo-800"
-                      >
-                        {skill}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSkill(skill)}
-                          className="ml-2 inline-flex text-indigo-600 hover:text-indigo-800 focus:outline-none"
-                        >
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="flex">
-                    <input
-                      type="text"
-                      value={currentSkill}
-                      onChange={(e) => setCurrentSkill(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                      placeholder="Add a skill (e.g. React, Python, Project Management)"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddSkill}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-r-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                    >
-                      Add
-                    </button>
-                  </div>
-                  <p className="mt-1 text-sm text-gray-500">
-                    Add relevant skills to help our AI match the right candidates.
-                  </p>
-                </div>
+               <div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">
+    Key Skills <span className="text-red-500">*</span>
+  </label>
+  <div className="flex flex-wrap gap-2 mb-2">
+    {formData.skills.map((skill) => (
+      <span 
+        key={skill} 
+        className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-indigo-100 text-indigo-800"
+      >
+        {skill}
+        <button
+          type="button"
+          onClick={() => handleRemoveSkill(skill)}
+          className="ml-2 inline-flex text-indigo-600 hover:text-indigo-800 focus:outline-none"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </span>
+    ))}
+  </div>
+  <div className="flex">
+    <input
+      type="text"
+      value={currentSkill}
+      onChange={(e) => setCurrentSkill(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleAddSkill(e);
+        }
+      }}
+      className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+      placeholder="Add a skill (e.g. React, Python, Project Management)"
+    />
+    <button
+      type="button"
+      onClick={(e) => handleAddSkill(e)}
+      className="px-4 py-2 bg-indigo-600 text-white rounded-r-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+    >
+      Add
+    </button>
+  </div>
+  <p className="mt-1 text-sm text-gray-500">
+    Add relevant skills to help our AI match the right candidates.
+  </p>
+</div>
               </div>
               
               {/* Job Simulation Section (AI Generated) */}

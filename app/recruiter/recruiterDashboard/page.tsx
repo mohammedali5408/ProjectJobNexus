@@ -1001,7 +1001,7 @@ const calculateMatchScore = (applicantId: string, position: string): string => {
               Find the perfect candidates using our AI matching technology.
             </p>
             <Link 
-              href="/recruiter/candidate-search" 
+              href="/recruiter/candidates"  
               className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
             >
               Find Candidates
