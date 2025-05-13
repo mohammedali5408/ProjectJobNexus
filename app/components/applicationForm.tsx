@@ -132,14 +132,24 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
   };
   
   // Handle when resume enhancement is complete
-  const handleEnhanceComplete = (enhancedId: string, enhancedData: any = null) => {
+ // Enhanced handleEnhanceComplete function in ApplicationForm component
+
+const handleEnhanceComplete = (enhancedId: string, enhancedData: any = null) => {
   setEnhancedResumeId(enhancedId);
   setIsEnhancerOpen(false);
   
   if (enhancedData) {
-    // Store the enhanced resume data
+    // Store the enhanced resume data including PDF URL if available
     setParsedResumeData(enhancedData);
     console.log('Enhanced resume data received:', enhancedData);
+    
+    // Check if PDF URL is provided
+    if (enhancedData.pdfUrl) {
+      console.log('Enhanced resume PDF URL:', enhancedData.pdfUrl);
+    } else {
+      console.warn('No PDF URL found in enhanced resume data');
+      // Add code to handle missing PDF if needed
+    }
   }
   
   // Update the enhanced resume name
@@ -183,7 +193,11 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
     setFormStep(1);
   };
   
-  const prepareApplicationData = async () => {
+  // Updated ApplicationForm component to handle enhanced resumes with PDF
+
+// Add to the prepareApplicationData function in ApplicationForm.tsx:
+
+const prepareApplicationData = async () => {
   const user = auth.currentUser;
   if (!user) {
     setNotification({
@@ -209,6 +223,88 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
       });
       return null;
     }
+  } 
+  // If enhanced resume is selected, get its PDF URL
+  else if (enhancedResumeId) {
+    try {
+      // First check if we already have the enhanced resume data with PDF URL
+      if (parsedResumeData && parsedResumeData.pdfUrl) {
+        resumeURL = parsedResumeData.pdfUrl;
+      } else {
+        // If not, fetch the enhanced resume from the user's profile
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          if (userData.resumes && Array.isArray(userData.resumes)) {
+            const enhancedResume = userData.resumes.find(r => r.id === enhancedResumeId);
+            if (enhancedResume && enhancedResume.pdfUrl) {
+              resumeURL = enhancedResume.pdfUrl;
+            }
+          }
+        }
+        
+        // If still not found, check candidateProfiles
+        if (!resumeURL) {
+          const profileDoc = await getDoc(doc(db, "candidateProfiles", user.uid));
+          if (profileDoc.exists()) {
+            const profileData = profileDoc.data();
+            if (profileData.resumes && Array.isArray(profileData.resumes)) {
+              const enhancedResume = profileData.resumes.find(r => r.id === enhancedResumeId);
+              if (enhancedResume && enhancedResume.pdfUrl) {
+                resumeURL = enhancedResume.pdfUrl;
+              }
+            }
+          }
+        }
+      }
+      
+      // If we still don't have a PDF URL, we need to generate one
+      if (!resumeURL) {
+        setNotification({
+          type: 'warning',
+          message: 'Enhanced resume PDF not found. Generating a new one...'
+        });
+        
+        // Call the PDF generation API
+        const pdfResponse = await fetch('/api/generate-resume-pdf', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            resumeData: parsedResumeData,
+            jobTitle: job.title,
+            company: job.company
+          })
+        });
+        
+        if (!pdfResponse.ok) {
+          throw new Error('Failed to generate enhanced resume PDF');
+        }
+        
+        // Get the PDF blob from the response
+        const pdfBlob = await pdfResponse.blob();
+        
+        // Create a file object from the blob
+        const pdfFile = new File(
+          [pdfBlob],
+          `${enhancedResumeName.replace(/\s+/g, '_')}.pdf`,
+          { type: 'application/pdf' }
+        );
+        
+        // Upload the PDF to Firebase Storage
+        const storageRef = ref(storage, `resumes/${user.uid}/${Date.now()}_${pdfFile.name}`);
+        const uploadResult = await uploadBytes(storageRef, pdfFile);
+        resumeURL = await getDownloadURL(uploadResult.ref);
+      }
+    } catch (error) {
+      console.error("Error handling enhanced resume:", error);
+      setNotification({
+        type: 'error',
+        message: 'Failed to process enhanced resume. Please try again.'
+      });
+      return null;
+    }
   }
   
   // Create application data object
@@ -225,7 +321,7 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
     availability,
     expectedSalary: salary,
     referralSource,
-    resumeURL,
+    resumeURL, // This now contains either the original resume URL or the enhanced resume PDF URL
     resumeSubmitted: !!resumeFile || !!enhancedResumeId,
     resumeFilename: resumeFile ? resumeFile.name : (enhancedResumeName || 'Enhanced Resume'),
     enhancedResumeId: enhancedResumeId,
@@ -342,134 +438,160 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
 
   // Render the resume upload section
   const renderResumeUpload = () => {
-    return (
-      <div className="mb-4">
-        <label htmlFor="resume" className="block text-sm font-medium text-gray-900 mb-1">
-          Resume <span className="text-red-500">*</span>
-        </label>
-        
-        {/* Display enhanced resume info if available */}
-        {enhancedResumeId && (
-          <div className="mb-3 p-3 bg-indigo-50 border border-indigo-100 rounded-md">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center">
-                  <svg className="h-5 w-5 text-indigo-500 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  <span className="text-sm font-medium text-indigo-800">Enhanced Resume</span>
-                </div>
-                <p className="text-xs text-indigo-700 mt-1 ml-7">{enhancedResumeName || "Optimized for this position"}</p>
+  return (
+    <div className="mb-4">
+      <label htmlFor="resume" className="block text-sm font-bold text-gray-900 mb-1" style={{ color: 'black' }}>
+        Resume <span className="text-red-500">*</span>
+      </label>
+      
+      {/* Display enhanced resume info if available */}
+      {enhancedResumeId && (
+        <div className="mb-3 p-3 rounded-md" style={{ backgroundColor: '#e0e7ff', border: '2px solid #6366f1' }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center">
+                <svg className="h-5 w-5 mr-2" style={{ color: '#4f46e5' }} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                <span className="text-sm font-bold" style={{ color: '#1e40af' }}>Enhanced Resume</span>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEnhancedResumeId(null);
-                  setEnhancedResumeName(null);
-                }}
-                className="text-xs text-indigo-600 hover:text-indigo-800"
-              >
-                Remove
-              </button>
+              <p className="text-xs mt-1 ml-7" style={{ color: '#3730a3' }}>{enhancedResumeName || "Optimized for this position"}</p>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEnhancedResumeId(null);
+                setEnhancedResumeName(null);
+              }}
+              className="text-xs font-medium px-2 py-1 rounded"
+              style={{ 
+                color: '#4f46e5', 
+                backgroundColor: '#e0e7ff',
+                border: '1px solid #6366f1'
+              }}
+            >
+              Remove
+            </button>
           </div>
-        )}
-        
-        {!enhancedResumeId && (
-          <div className="space-y-3">
-            <input
-              type="file"
-              id="resume"
-              accept=".pdf,.doc,.docx"
-              onChange={handleResumeChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
-              required={!enhancedResumeId}
-            />
-            <p className="mt-1 text-xs text-gray-600">
-              Accepted formats: PDF, DOC, DOCX. Maximum size: 5MB
-            </p>
+        </div>
+      )}
+      
+      {!enhancedResumeId && (
+        <div className="space-y-3">
+          <input
+            type="file"
+            id="resume"
+            accept=".pdf,.doc,.docx"
+            onChange={handleResumeChange}
+            className="w-full px-3 py-2 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+            style={{ 
+              backgroundColor: '#e5e7eb', 
+              color: 'black', 
+              border: '2px solid #374151'
+            }}
+            required={!enhancedResumeId}
+          />
+          <p className="mt-1 text-xs font-medium" style={{ color: 'black' }}>
+            Accepted formats: PDF, DOC, DOCX. Maximum size: 5MB
+          </p>
+        </div>
+      )}
+      
+      {resumeFile && parsedResumeData && !enhancedResumeId && (
+        <div className="mt-3 p-3 rounded-md" style={{ backgroundColor: '#e5e7eb', border: '2px solid #6b7280' }}>
+          <div className="flex justify-between items-center mb-2">
+            <h4 className="text-sm font-bold" style={{ color: 'black' }}>Resume Preview</h4>
+            <button
+              type="button"
+              onClick={() => setIsEnhancerOpen(true)}
+              className="px-3 py-1 rounded text-sm transition-colors"
+              style={{ 
+                backgroundColor: '#e0e7ff', 
+                border: '2px solid #4f46e5',
+                color: '#1e40af',
+                fontWeight: 'bold'
+              }}
+            >
+              <span className="flex items-center">
+                <svg 
+                  className="h-4 w-4 mr-1" 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  viewBox="0 0 20 20" 
+                  fill="currentColor"
+                  style={{ color: '#4338ca' }}
+                >
+                  <path 
+                    fillRule="evenodd" 
+                    d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" 
+                    clipRule="evenodd" 
+                  />
+                </svg>
+                <span style={{ color: '#1e40af' }}>Enhance for this job</span>
+              </span>
+            </button>
           </div>
-        )}
-        
-        {resumeFile && parsedResumeData && !enhancedResumeId && (
-          <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-md">
-            <div className="flex justify-between items-center mb-2">
-              <h4 className="text-sm font-medium text-gray-700">Resume Preview</h4>
-              <button
-                type="button"
-                onClick={() => setIsEnhancerOpen(true)}
-                className="px-3 py-1 bg-indigo-50 border border-indigo-200 rounded text-sm text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700 transition-colors"
-              >
-                <span className="flex items-center">
-                  <svg className="h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
-                  </svg>
-                  Enhance for this job
-                </span>
-              </button>
-            </div>
+          
+          <div className="text-sm space-y-2 max-h-40 overflow-y-auto" style={{ color: 'black' }}>
+            {parsedResumeData.personalInfo && (
+              <div>
+                <p className="font-bold" style={{ color: 'black' }}>{parsedResumeData.personalInfo.name || 'Name not found'}</p>
+                {parsedResumeData.personalInfo.email && <p style={{ color: 'black' }}>{parsedResumeData.personalInfo.email}</p>}
+              </div>
+            )}
             
-            <div className="text-sm text-gray-600 space-y-2 max-h-40 overflow-y-auto">
-              {parsedResumeData.personalInfo && (
-                <div>
-                  <p className="font-medium">{parsedResumeData.personalInfo.name || 'Name not found'}</p>
-                  {parsedResumeData.personalInfo.email && <p>{parsedResumeData.personalInfo.email}</p>}
-                </div>
-              )}
-              
-              {parsedResumeData.summary && (
-                <div>
-                  <p className="font-medium text-xs text-gray-500">Summary:</p>
-                  <p className="text-xs">{parsedResumeData.summary.length > 100 
-                    ? `${parsedResumeData.summary.substring(0, 100)}...` 
-                    : parsedResumeData.summary}
+            {parsedResumeData.summary && (
+              <div>
+                <p className="font-bold text-xs" style={{ color: 'black' }}>Summary:</p>
+                <p className="text-xs" style={{ color: 'black' }}>{parsedResumeData.summary.length > 100 
+                  ? `${parsedResumeData.summary.substring(0, 100)}...` 
+                  : parsedResumeData.summary}
+                </p>
+              </div>
+            )}
+            
+            {parsedResumeData.skills && parsedResumeData.skills.length > 0 && (
+              <div>
+                <p className="font-bold text-xs" style={{ color: 'black' }}>Skills:</p>
+                <p className="text-xs" style={{ color: 'black' }}>
+                  {Array.isArray(parsedResumeData.skills) 
+                    ? parsedResumeData.skills.slice(0, 5).join(', ') + (parsedResumeData.skills.length > 5 ? '...' : '')
+                    : parsedResumeData.skills}
+                </p>
+              </div>
+            )}
+            
+            {parsedResumeData.experience && parsedResumeData.experience.length > 0 && (
+              <div>
+                <p className="font-bold text-xs" style={{ color: 'black' }}>Experience:</p>
+                <p className="text-xs" style={{ color: 'black' }}>{parsedResumeData.experience[0].title} at {parsedResumeData.experience[0].company}</p>
+                {parsedResumeData.experience.length > 1 && (
+                  <p className="text-xs italic" style={{ color: 'black', fontWeight: 'medium' }}>
+                    + {parsedResumeData.experience.length - 1} more experiences
                   </p>
-                </div>
-              )}
-              
-              {parsedResumeData.skills && parsedResumeData.skills.length > 0 && (
-                <div>
-                  <p className="font-medium text-xs text-gray-500">Skills:</p>
-                  <p className="text-xs">
-                    {Array.isArray(parsedResumeData.skills) 
-                      ? parsedResumeData.skills.slice(0, 5).join(', ') + (parsedResumeData.skills.length > 5 ? '...' : '')
-                      : parsedResumeData.skills}
-                  </p>
-                </div>
-              )}
-              
-              {parsedResumeData.experience && parsedResumeData.experience.length > 0 && (
-                <div>
-                  <p className="font-medium text-xs text-gray-500">Experience:</p>
-                  <p className="text-xs">{parsedResumeData.experience[0].title} at {parsedResumeData.experience[0].company}</p>
-                  {parsedResumeData.experience.length > 1 && (
-                    <p className="text-xs text-gray-400 italic">
-                      + {parsedResumeData.experience.length - 1} more experiences
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
-        )}
-        
-        {isParsing && (
-          <div className="mt-2">
-            <div className="flex items-center">
-              <svg className="animate-spin h-4 w-4 text-indigo-600 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <span className="text-sm text-gray-700">Parsing resume... {parseProgress}%</span>
-            </div>
-            <div className="mt-1 h-1 w-full bg-gray-200 rounded">
-              <div className="h-1 bg-indigo-600 rounded" style={{ width: `${parseProgress}%` }}></div>
-            </div>
+        </div>
+      )}
+      
+      {isParsing && (
+        <div className="mt-2">
+          <div className="flex items-center">
+            <svg className="animate-spin h-4 w-4 mr-2" style={{ color: '#4f46e5' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span className="text-sm font-medium" style={{ color: 'black' }}>Parsing resume... {parseProgress}%</span>
           </div>
-        )}
-      </div>
-    );
-  };
+          <div className="mt-1 h-1 w-full rounded" style={{ backgroundColor: '#d1d5db' }}>
+            <div className="h-1 rounded" style={{ backgroundColor: '#4f46e5', width: `${parseProgress}%` }}></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
   
   // Render the application review screen
   const renderApplicationReview = () => {
@@ -529,7 +651,7 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
                 {resumeData.summary && (
                   <div className="mb-3">
                     <p className="font-medium">Summary:</p>
-                    <p className="text-gray-600">{resumeData.summary}</p>
+                    <p className="text-gray-800">{resumeData.summary}</p>
                   </div>
                 )}
                 
@@ -537,7 +659,7 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
                 {resumeData.skills && (
                   <div className="mb-3">
                     <p className="font-medium">Skills:</p>
-                    <p className="text-gray-600">
+                    <p className="text-gray-800">
                       {Array.isArray(resumeData.skills) 
                         ? resumeData.skills.join(', ') 
                         : resumeData.skills}
@@ -552,9 +674,9 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
                     <div className="ml-2">
                       {(resumeData.experience.slice(0, 2)).map((exp: any, i: number) => (
                         <div key={i} className="mb-2">
-                          <p className="font-medium text-gray-700">{exp.title} at {exp.company}</p>
-                          <p className="text-xs text-gray-500">{exp.startDate} - {exp.endDate || 'Present'}</p>
-                          <p className="text-gray-600 text-sm">{typeof exp.description === 'string' 
+                          <p className="font-medium text-gray-800">{exp.title} at {exp.company}</p>
+                          <p className="text-xs text-gray-700">{exp.startDate} - {exp.endDate || 'Present'}</p>
+                          <p className="text-gray-800 text-sm">{typeof exp.description === 'string' 
                             ? exp.description.length > 150 
                               ? `${exp.description.substring(0, 150)}...` 
                               : exp.description 
@@ -563,7 +685,7 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
                         </div>
                       ))}
                       {resumeData.experience.length > 2 && (
-                        <p className="text-xs text-gray-500 italic">
+                        <p className="text-xs text-gray-700 italic">
                           {resumeData.experience.length - 2} more experiences included
                         </p>
                       )}
@@ -572,7 +694,7 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
                 )}
               </div>
             ) : (
-              <div className="text-sm text-gray-500 italic">
+              <div className="text-sm text-gray-700 italic">
                 {applicationData.resumeFilename ? (
                   <p>Resume file: {applicationData.resumeFilename}</p>
                 ) : (
@@ -586,7 +708,7 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
           <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
             <h4 className="text-md font-medium text-gray-900 mb-2">Your Application Summary</h4>
             <div className="text-sm text-gray-800">
-              <p className="text-gray-600">{applicationData.applySummary}</p>
+              <p className="text-gray-800">{applicationData.applySummary}</p>
             </div>
           </div>
           
@@ -595,12 +717,12 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
             <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
               <h4 className="text-md font-medium text-gray-900 mb-2">Cover Letter</h4>
               <div className="text-sm text-gray-800">
-                <p className="text-gray-600">{applicationData.coverLetter.length > 300 
+                <p className="text-gray-800">{applicationData.coverLetter.length > 300 
                   ? `${applicationData.coverLetter.substring(0, 300)}...` 
                   : applicationData.coverLetter}
                 </p>
                 {applicationData.coverLetter.length > 300 && (
-                  <p className="text-xs text-gray-500 italic mt-1">
+                  <p className="text-xs text-gray-700 italic mt-1">
                     Full cover letter will be included in your application
                   </p>
                 )}
@@ -738,7 +860,7 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
                     placeholder="Highlight your key qualifications and experience that make you a strong candidate for this position..."
                     required
                   />
-                  <p className="mt-1 text-xs text-gray-600">
+                  <p className="mt-1 text-xs text-gray-700">
                     Keep this concise (150-250 words). You'll have the opportunity to provide more details later.
                   </p>
                 </div>
@@ -787,17 +909,18 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
                       Availability to Start
                     </label>
                     <select
-                      id="availability"
-                      value={availability}
-                      onChange={(e) => setAvailability(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
-                    >
-                      <option value="">Select an option</option>
-                      <option value="immediately">Immediately</option>
-                      <option value="2weeks">2 weeks notice</option>
-                      <option value="1month">1 month notice</option>
-                      <option value="more">More than 1 month</option>
-                    </select>
+  id="availability"
+  value={availability}
+  onChange={(e) => setAvailability(e.target.value)}
+  className="w-full px-3 py-2 border border-gray-700 rounded-md shadow-sm"
+  style={{ backgroundColor: '#e5e7eb', color: 'black', borderColor: '#374151' }}
+>
+  <option value="" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>Select an option</option>
+  <option value="immediately" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>Immediately</option>
+  <option value="2weeks" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>2 weeks notice</option>
+  <option value="1month" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>1 month notice</option>
+  <option value="more" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>More than 1 month</option>
+</select>
                   </div>
                   
                   <div>
@@ -820,19 +943,20 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
                     How did you hear about this position?
                   </label>
                   <select
-                    id="referralSource"
-                    value={referralSource}
-                    onChange={(e) => setReferralSource(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
-                  >
-                    <option value="">Select an option</option>
-                    <option value="jobBoard">Job Board</option>
-                    <option value="companyWebsite">Company Website</option>
-                    <option value="socialMedia">Social Media</option>
-                    <option value="employeeReferral">Employee Referral</option>
-                    <option value="recruitmentAgency">Recruitment Agency</option>
-                    <option value="other">Other</option>
-                  </select>
+  id="referralSource"
+  value={referralSource}
+  onChange={(e) => setReferralSource(e.target.value)}
+  className="w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+  style={{ backgroundColor: '#e5e7eb', color: 'black', borderColor: '#374151' }}
+>
+  <option value="" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>Select an option</option>
+  <option value="jobBoard" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>Job Board</option>
+  <option value="companyWebsite" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>Company Website</option>
+  <option value="socialMedia" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>Social Media</option>
+  <option value="employeeReferral" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>Employee Referral</option>
+  <option value="recruitmentAgency" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>Recruitment Agency</option>
+  <option value="other" style={{ color: 'black', backgroundColor: '#e5e7eb' }}>Other</option>
+</select>
                 </div>
                 
                 <div className="mb-6">
@@ -851,7 +975,7 @@ export default function ApplicationForm({ job, onClose, onSuccess, enhancedResum
                       <label htmlFor="terms" className="font-medium text-gray-900">
                         Terms and Conditions <span className="text-red-500">*</span>
                       </label>
-                      <p className="text-gray-600">
+                      <p className="text-gray-700">
                         I agree to the <Link href="#" className="text-indigo-600 hover:text-indigo-500">privacy policy</Link> and consent to the processing of my personal data for the purpose of job application.
                       </p>
                     </div>

@@ -546,7 +546,7 @@ export default function CandidateMessagesPage() {
                     })()}
                   </div>
                   <Link 
-                    href={`/candidate/messages/${selectedConversation.id}`}
+                    href={`/applicant/messages/${selectedConversation.id}`}
                     className="text-sm text-indigo-600 hover:text-indigo-800"
                   >
                     View full conversation

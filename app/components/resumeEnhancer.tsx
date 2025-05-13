@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { doc, getDoc, updateDoc, arrayUnion, collection, query, where, getDocs } from 'firebase/firestore';
-import { auth, db } from '@/app/lib/firebase';
+import { auth, db, storage } from '@/app/lib/firebase';
 import ResumeViewer from './resumeViewer';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 interface ResumeEnhancerProps {
   jobId: string;
@@ -414,32 +415,106 @@ export default function ResumeEnhancer({
   };
 
   // Save enhanced resume to user's profile
-  const saveEnhancedResume = async () => {
-    try {
-      const user = auth.currentUser;
-      if (!user || !enhancedResume) {
-        setNotification({
-          type: 'error',
-          message: 'Unable to save enhanced resume'
-        });
-        return;
-      }
-      
-      await updateDoc(doc(db, "users", user.uid), {
-        "resumes": arrayUnion(enhancedResume)
-      });
-      
-      onEnhanceComplete(enhancedResume.id, enhancedResume.data);
-      setShowPreview(false);
-      onClose();
-    } catch (error) {
-      console.error("Error saving enhanced resume:", error);
+  // Updated saveEnhancedResume function to handle PDF creation and storage
+
+const saveEnhancedResume = async () => {
+  try {
+    const user = auth.currentUser;
+    if (!user || !enhancedResume) {
       setNotification({
         type: 'error',
-        message: 'Failed to save enhanced resume'
+        message: 'Unable to save enhanced resume'
       });
+      return;
     }
-  };
+    
+    // First, we need to generate the PDF from the enhanced resume data
+    setNotification({
+      type: 'info',
+      message: 'Generating enhanced resume PDF...'
+    });
+    
+    // Call the PDF generation API with the enhanced resume data
+    const pdfResponse = await fetch('/api/generate-resume-pdf', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        resumeData: enhancedResume.data,
+        jobTitle: job?.title,
+        company: job?.company
+      })
+    });
+    
+    if (!pdfResponse.ok) {
+      throw new Error('Failed to generate enhanced resume PDF');
+    }
+    
+    // Get the PDF blob from the response
+    const pdfBlob = await pdfResponse.blob();
+    
+    // Create a file object from the blob
+    const pdfFile = new File(
+      [pdfBlob],
+      `${enhancedResume.name.replace(/\s+/g, '_')}.pdf`,
+      { type: 'application/pdf' }
+    );
+    
+    // Upload the PDF to Firebase Storage
+    const storageRef = ref(storage, `resumes/${user.uid}/${Date.now()}_${pdfFile.name}`);
+    const uploadResult = await uploadBytes(storageRef, pdfFile);
+    const pdfUrl = await getDownloadURL(uploadResult.ref);
+    
+    // Add the PDF URL to the enhanced resume object
+    const enhancedResumeWithPdf = {
+      ...enhancedResume,
+      pdfUrl: pdfUrl,
+      fileType: 'application/pdf',
+      fileName: pdfFile.name
+    };
+    
+    // Save to Firestore
+    await updateDoc(doc(db, "users", user.uid), {
+      "resumes": arrayUnion(enhancedResumeWithPdf)
+    });
+    
+    // Also update user's candidateProfile if it exists
+    try {
+      const profileRef = doc(db, "candidateProfiles", user.uid);
+      const profileDoc = await getDoc(profileRef);
+      
+      if (profileDoc.exists()) {
+        await updateDoc(profileRef, {
+          "resumes": arrayUnion(enhancedResumeWithPdf)
+        });
+      }
+    } catch (profileError) {
+      console.error("Error updating candidate profile:", profileError);
+      // Continue with the process even if this fails
+    }
+    
+    setNotification({
+      type: 'success',
+      message: 'Enhanced resume saved successfully!'
+    });
+    
+    // Return both the data and PDF URL to the parent component
+    onEnhanceComplete(enhancedResumeWithPdf.id, {
+      ...enhancedResumeWithPdf.data,
+      pdfUrl: pdfUrl
+    });
+    
+    setShowPreview(false);
+    onClose();
+  } catch (error) {
+    console.error("Error saving enhanced resume:", error);
+    setNotification({
+      type: 'error',
+      message: 'Failed to save enhanced resume: ' + (error instanceof Error ? error.message : 'Unknown error')
+    });
+  }
+};
 
   // Generate change highlights
   const generateChangeHighlights = (original: any, enhanced: any, jobData: any) => {

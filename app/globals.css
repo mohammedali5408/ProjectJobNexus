@@ -58,3 +58,42 @@ p, h1, h2, h3, h4, h5, h6, span, div, a, button, input, textarea, label, li {
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
 }
+
+/* Add these styles to your CSS or directly in the component */
+
+/* For all inputs, textareas, and select elements */
+input, textarea, select {
+  background-color: #f0f4f8 !important; /* Light blue-gray background */
+  border: 1px solid #64748b !important; /* Medium slate blue border */
+  color: #1e293b !important; /* Very dark blue text */
+}
+
+/* For placeholder text */
+::placeholder {
+  color: #475569 !important; /* Dark slate blue for placeholder text */
+  opacity: 1 !important;
+}
+
+/* For option elements in dropdowns */
+option {
+  background-color: #f0f4f8 !important; 
+  color: #1e293b !important;
+}
+
+/* For helper text below inputs */
+.text-xs, .text-sm {
+  color: #334155 !important; /* Dark slate for small helper text */
+}
+
+/* For preview sections and panels */
+.bg-gray-50 {
+  background-color: #e2e8f0 !important; /* Slightly darker background for panels */
+  border: 1px solid #94a3b8 !important; /* Medium blue-gray border */
+}
+
+/* For the resume preview section */
+.resume-preview, [class*="preview"] {
+  background-color: #e2e8f0 !important;
+  border: 1px solid #64748b !important;
+  color: #1e293b !important;
+}

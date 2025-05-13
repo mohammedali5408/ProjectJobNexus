@@ -57,9 +57,9 @@ export default function ApplicantNotifications() {
           const userData = userDoc.docs[0].data();
           setUserRole(userData.role || 'applicant');
           
-          // If user is not an applicant, redirect to recruiter dashboard
+          // If user is not an applicant, redirect to applicant dashboard
           if (userData.role !== 'applicant') {
-            router.push('/recruiter/recruiterDashboard');
+            router.push('/applicant/applicantDashboard');
             return;
           }
         }
@@ -79,9 +79,31 @@ export default function ApplicantNotifications() {
           const data = doc.data() as Notification;
           // Remove 'id' from data to avoid duplicate property
           const { id, ...restData } = data as any;
+          
+          // Ensure all action URLs use applicant routes for this applicant page
+          let actions = restData.actions || [];
+          if (actions.length > 0) {
+            actions = actions.map(action => ({
+              ...action,
+              // For message notifications, always use the general messages page
+              url: restData.type === 'message' 
+                ? '/applicant/messages'
+                // For other notifications, make sure we're only using applicant routes
+                : action.url.replace(/recruiter\/[a-zA-Z0-9\/\-_]+/i, path => {
+                    // Extract the path after 'recruiter/'
+                    const subPath = path.split('recruiter/')[1];
+                    // Return the path with 'applicant/' instead
+                    return `applicant/${subPath}`;
+                  })
+                  // Also replace any applicant/messages/[id] with just applicant/messages
+                  .replace(/applicant\/messages\/[a-zA-Z0-9\-_]+/i, 'applicant/messages')
+            }));
+          }
+          
           notificationsData.push({
             id: doc.id,
             ...restData,
+            actions,
             createdAt: data.createdAt as Timestamp
           });
           
@@ -237,6 +259,23 @@ export default function ApplicantNotifications() {
     }
   };
   
+  // Handle notification click with direct navigation
+  const handleNotificationClick = (notification: Notification) => {
+    // Mark as read
+    if (!notification.read) {
+      markAsRead(notification.id);
+    }
+    
+    // Navigate based on notification type
+    if (notification.type === 'message') {
+      // For message notifications, always go to the main messages page
+      router.push('/applicant/messages');
+    } else if (notification.actions && notification.actions.length > 0) {
+      // Use the first action's URL by default
+      router.push(notification.actions[0].url);
+    }
+  };
+  
   // Loading state
   if (authLoading) {
     return (
@@ -368,8 +407,8 @@ export default function ApplicantNotifications() {
               {filteredNotifications.map((notification) => (
                 <div 
                   key={notification.id}
-                  className={`p-4 rounded-lg border ${notification.read ? 'bg-white' : 'bg-indigo-50'} ${notification.read ? 'border-gray-200' : 'border-indigo-200'}`}
-                  onClick={() => !notification.read && markAsRead(notification.id)}
+                  className={`p-4 rounded-lg border ${notification.read ? 'bg-white' : 'bg-indigo-50'} ${notification.read ? 'border-gray-200' : 'border-indigo-200'} cursor-pointer`}
+                  onClick={() => handleNotificationClick(notification)}
                 >
                   <div className="flex items-start">
                     <div className="flex-shrink-0">
@@ -397,8 +436,17 @@ export default function ApplicantNotifications() {
                           {notification.actions.map((action, index) => (
                             <Link
                               key={index}
-                              href={action.url}
+                              // For message notifications, always direct to the main messages page
+                              href={notification.type === 'message' ? '/applicant/messages' : action.url}
                               className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                              onClick={(e) => {
+                                // Prevent triggering the parent onClick
+                                e.stopPropagation();
+                                // Mark as read when clicking the action link
+                                if (!notification.read) {
+                                  markAsRead(notification.id);
+                                }
+                              }}
                             >
                               {action.label}
                             </Link>
