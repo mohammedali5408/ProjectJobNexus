@@ -1,51 +1,41 @@
-# Ignore list for Eagle, a PCB layout tool
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# Backup files
-*.s#?
-*.b#?
-*.l#?
-*.b$?
-*.s$?
-*.l$?
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
-# Eagle project file
-# It contains a serial number and references to the file structure
-# on your computer.
-# comment the following line if you want to have your project file included.
-eagle.epf
+# testing
+/coverage
 
-# Autorouter files
-*.pro
-*.job
+# next.js
+/.next/
+/out/
 
-# CAM files
-*.$$$
-*.cmp
-*.ly2
-*.l15
-*.sol
-*.plc
-*.stc
-*.sts
-*.crc
-*.crs
+# production
+/build
 
-*.dri
-*.drl
-*.gpi
-*.pls
-*.ger
-*.xln
+# misc
+.DS_Store
+*.pem
 
-*.drd
-*.drd.*
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
-*.s#*
-*.b#*
+# env files (can opt-in for committing if needed)
+.env*
 
-*.info
+# vercel
+.vercel
 
-*.eps
-
-# file locks introduced since 7.x
-*.lck
+# typescript
+*.tsbuildinfo
+next-env.d.ts

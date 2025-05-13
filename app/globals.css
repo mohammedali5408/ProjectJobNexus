@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #000000; /* Changed to black */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #000000; /* Changed to black for dark mode too */
+  }
+}
+
+body {
+  background: var(--background);
+  color: #000000; /* Set to black explicitly */
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Force all text to be black regardless of parent elements */
+p, h1, h2, h3, h4, h5, h6, span, div, a, button, input, textarea, label, li {
+  color: #000000;
+}
+
+/* Override Tailwind text colors */
+.text-gray-500, .text-gray-600, .text-gray-700, .text-gray-800, .text-gray-900,
+.text-indigo-100, .text-indigo-200, .text-indigo-500, .text-indigo-600, .text-indigo-700, .text-indigo-800,
+.text-blue-500, .text-blue-600, .text-blue-700, .text-blue-800,
+.text-red-500, .text-red-600, .text-red-700, .text-red-800,
+.text-green-500, .text-green-600, .text-green-700, .text-green-800,
+.text-yellow-500, .text-yellow-600, .text-yellow-700, .text-yellow-800,
+.text-purple-500, .text-purple-600, .text-purple-700, .text-purple-800 {
+  color: #000000 !important;
+}
+
+/* Only exception for white text on colored backgrounds for better visibility */
+.bg-indigo-600 *, .bg-blue-600 *, .bg-red-600 *, .bg-green-600 *, .bg-purple-600 *,
+.bg-gradient-to-r *, .bg-gradient-to-br * {
+  color: #ffffff;
+}
+
+/* Add this to your existing global.css */
+/* Exception for gradient text */
+.text-transparent {
+  color: transparent !important;
+}
+
+/* Or more specifically for gradient text */
+.bg-clip-text.text-transparent {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
