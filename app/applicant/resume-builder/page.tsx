@@ -487,11 +487,11 @@ export default function ResumeBuilder() {
           )
         );
         
-        const missingSkills = job.skills.filter(skill => 
-          !parsedResumeData.skills.some(resumeSkill => 
-            resumeSkill.toLowerCase() === skill.toLowerCase()
-          )
-        );
+        const missingSkills = job?.skills?.filter(skill => 
+  !parsedResumeData.skills.some(resumeSkill => 
+    resumeSkill.toLowerCase() === skill.toLowerCase()
+  )
+) || [];
         
         // Add job-specific skills to suggestions
         setSuggestedSkills(prevSkills => {
@@ -505,7 +505,7 @@ export default function ResumeBuilder() {
         });
         
         // Show a notification about the job match
-        const matchPercentage = Math.round((matchedSkills.length / job.skills.length) * 100);
+        const matchPercentage = job?.skills?.length ? Math.round((matchedSkills.length / job.skills.length) * 100) : 0;
         setNotification({
           type: 'info',
           message: `Your resume matches ${matchPercentage}% of the skills required for this job. Consider adding the suggested skills.`
@@ -587,16 +587,16 @@ export default function ResumeBuilder() {
 
       // Create a payload with the current resume data and job requirements
       const payload = {
-        resume: resumeData,
-        job: {
-          title: job.title,
-          company: job.company,
-          description: job.description,
-          requirements: job.requirements,
-          skills: job.skills,
-          experienceLevel: job.experienceLevel
-        }
-      };
+  resume: resumeData,
+  job: {
+    title: job?.title || '',
+    company: job?.company || '',
+    description: job?.description || '',
+    requirements: job?.requirements || '',
+    skills: job?.skills || [],
+    experienceLevel: job?.experienceLevel || ''
+  }
+};
 
       // Call the AI optimization API
       const response = await fetch('/api/resume-enhancer', {
@@ -1189,7 +1189,7 @@ if (authLoading) {
                     <div className="mb-4">
                       <label className="block text-sm font-medium text-gray-700 mb-2">Your Skills</label>
                       <div className="flex flex-wrap gap-2">
-                        {resumeData.skills.map((skill, index) => (
+                        {resumeData.skills?.map((skill, index) => (
                           <div key={index} className="bg-indigo-100 text-indigo-800 rounded-full px-3 py-1 text-sm font-medium flex items-center">
                             <span>{skill}</span>
                             <button
@@ -1281,7 +1281,14 @@ if (authLoading) {
                       </button>
                     </div>
                     
-                    {resumeData.workExperience.map((experience, index) => (
+                    {(Array.isArray(resumeData?.workExperience) ? resumeData.workExperience : [{ 
+  company: '', 
+  position: '', 
+  startDate: '', 
+  endDate: '', 
+  current: false,
+  description: '' 
+}]).map((experience, index) => (
                       <div key={index} className="mb-6 p-4 border border-gray-200 rounded-md bg-gray-50">
                         <div className="flex justify-between items-start mb-3">
                           <h4 className="text-md font-medium text-gray-900">Position {index + 1}</h4>
@@ -1381,7 +1388,7 @@ if (authLoading) {
                     </button>
                   </div>
                   
-                  {resumeData.education.map((edu, index) => (
+                  {resumeData.education?.map((edu, index) => (
                     <div key={index} className="mb-6 p-4 border border-gray-200 rounded-md bg-gray-50">
                       <div className="flex justify-between items-start mb-3">
                         <h4 className="text-md font-medium text-gray-900">Education {index + 1}</h4>
@@ -1480,7 +1487,7 @@ if (authLoading) {
                     </button>
                   </div>
                   
-                  {resumeData.projects.map((project, index) => (
+                  {resumeData.projects?.map((project, index) => (
                     <div key={index} className="mb-6 p-4 border border-gray-200 rounded-md bg-gray-50">
                       <div className="flex justify-between items-start mb-3">
                         <h4 className="text-md font-medium text-gray-900">Project {index + 1}</h4>
@@ -1601,7 +1608,7 @@ if (authLoading) {
                     </button>
                   </div>
                   
-                  {resumeData.certifications.map((cert, index) => (
+                  {resumeData.certifications?.map((cert, index) => (
                     <div key={index} className="mb-6 p-4 border border-gray-200 rounded-md bg-gray-50">
                       <div className="flex justify-between items-start mb-3">
                         <h4 className="text-md font-medium text-gray-900">Certification {index + 1}</h4>
