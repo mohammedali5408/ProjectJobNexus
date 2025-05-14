@@ -442,6 +442,24 @@ export default function ResumeBuilder() {
       
       console.log('Parsed resume data:', parsedResumeData);
       
+      // Map experience to workExperience if needed
+      if (parsedResumeData.experience && !parsedResumeData.workExperience) {
+        console.log("Mapping experience to workExperience");
+        parsedResumeData.workExperience = parsedResumeData.experience.map(exp => ({
+          company: exp.company || '',
+          position: exp.title || '', // 'title' in parsed data maps to 'position' in component
+          startDate: exp.startDate || '',
+          endDate: exp.endDate || '',
+          current: !exp.endDate || exp.endDate.includes('Present'), // Set current based on endDate
+          description: exp.description || ''
+        }));
+      }
+
+      console.log("After mapping:", {
+        workExperience: parsedResumeData.workExperience,
+        entireData: parsedResumeData
+      });
+      
       // Fill in any missing information with current user data
       if (user) {
         if (!parsedResumeData.name || parsedResumeData.name.trim() === '') {
@@ -488,10 +506,10 @@ export default function ResumeBuilder() {
         );
         
         const missingSkills = job?.skills?.filter(skill => 
-  !parsedResumeData.skills.some(resumeSkill => 
-    resumeSkill.toLowerCase() === skill.toLowerCase()
-  )
-) || [];
+          !parsedResumeData.skills.some(resumeSkill => 
+            resumeSkill.toLowerCase() === skill.toLowerCase()
+          )
+        ) || [];
         
         // Add job-specific skills to suggestions
         setSuggestedSkills(prevSkills => {
@@ -709,7 +727,7 @@ export default function ResumeBuilder() {
   };
 
 // Export resume to PDF
-const exportResumeToPDF = () => {
+const exportResumeToPDF = async () => {
   if (!currentResume) {
     setNotification({
       type: 'error',
@@ -725,103 +743,53 @@ const exportResumeToPDF = () => {
   });
   
   try {
-    // Delay to allow notification to show
-    setTimeout(async () => {
-      try {
-        // Create a data object with resume information
-        const pdfData = {
-          resumeData,
-          includeHeader: true,
-          templateStyle: 'professional' // or 'modern', 'minimal', etc.
-        };
-        
-        // Call the PDF generation API
-        const response = await fetch('/api/generate-pdf', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(pdfData)
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to generate PDF');
-        }
-        
-        // Get the PDF blob
-        const blob = await response.blob();
-        
-        // Create a download link and click it
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.style.display = 'none';
-        a.href = url;
-        a.download = `${resumeData.name} - Resume.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        
-        // Clean up
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        
-        setNotification({
-          type: 'success',
-          message: 'Resume downloaded as PDF'
-        });
-      } catch (error) {
-        console.error("Error generating PDF:", error);
-        
-        // Fallback: If API fails, try client-side PDF generation
-        try {
-          const resumeElement = document.querySelector('.resume-preview') as HTMLElement;
-          if (!resumeElement) throw new Error('Resume preview element not found');
-          
-          // Use html2canvas and jsPDF for client-side generation
-          // Note: You would need to import these libraries
-          // import html2canvas from 'html2canvas';
-          // import { jsPDF } from 'jspdf';
-          
-          /*
-          html2canvas(resumeElement).then(canvas => {
-            const imgData = canvas.toDataURL('image/png');
-            const pdf = new jsPDF('p', 'mm', 'a4');
-            const width = pdf.internal.pageSize.getWidth();
-            const height = (canvas.height * width) / canvas.width;
-            pdf.addImage(imgData, 'PNG', 0, 0, width, height);
-            pdf.save(`${resumeData.name} - Resume.pdf`);
-            
-            setNotification({
-              type: 'success',
-              message: 'Resume downloaded as PDF (client-side)'
-            });
-          });
-          */
-          
-          // Since we haven't imported the libraries, show a message
-          setNotification({
-            type: 'error',
-            message: 'PDF generation failed. Please try again later.'
-          });
-        } catch (fallbackError) {
-          console.error("Client-side PDF generation also failed:", fallbackError);
-          setNotification({
-            type: 'error',
-            message: 'PDF generation failed. Please try again later.'
-          });
-        }
-      }
-      
-      // Clear notification after 3 seconds
-      setTimeout(() => {
-        setNotification({ type: '', message: '' });
-      }, 3000);
-    }, 500);
+    // Call the PDF generation API with the current resume data
+    const response = await fetch('/api/generate-resume-pdf', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        resumeData: resumeData,
+        templateStyle: 'professional' // or 'modern', 'minimal', etc.
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to generate PDF');
+    }
+    
+    // Get the PDF blob from the response
+    const blob = await response.blob();
+    
+    // Create a download link and click it
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = `${resumeData.name || 'Resume'}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    
+    // Clean up
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    
+    setNotification({
+      type: 'success',
+      message: 'Resume downloaded as PDF'
+    });
   } catch (error) {
-    console.error("Error in PDF export process:", error);
+    console.error("Error generating PDF:", error);
     setNotification({
       type: 'error',
-      message: 'Error exporting resume to PDF'
+      message: 'Error generating PDF: ' + (error instanceof Error ? error.message : 'Unknown error')
     });
+  } finally {
+    // Clear notification after 3 seconds
+    setTimeout(() => {
+      setNotification({ type: '', message: '' });
+    }, 3000);
   }
 };
 
@@ -1280,96 +1248,107 @@ if (authLoading) {
                         Add Position
                       </button>
                     </div>
-                    
-                    {(Array.isArray(resumeData?.workExperience) ? resumeData.workExperience : [{ 
-  company: '', 
-  position: '', 
-  startDate: '', 
-  endDate: '', 
-  current: false,
-  description: '' 
-}]).map((experience, index) => (
-                      <div key={index} className="mb-6 p-4 border border-gray-200 rounded-md bg-gray-50">
-                        <div className="flex justify-between items-start mb-3">
-                          <h4 className="text-md font-medium text-gray-900">Position {index + 1}</h4>
-                          {index > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => removeWorkExperience(index)}
-                              className="text-red-600 hover:text-red-800"
-                            >
-                              <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                              </svg>
-                            </button>
-                          )}
-                        </div>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Company</label>
-                          <input
-                            type="text"
-                            value={experience.company}
-                            onChange={(e) => handleInputChange(e, 'workExperience', index, 'company')}
-                            className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Position</label>
-                          <input
-                            type="text"
-                            value={experience.position}
-                            onChange={(e) => handleInputChange(e, 'workExperience', index, 'position')}
-                            className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Start Date</label>
-                          <input
-                            type="month"
-                            value={experience.startDate}
-                            onChange={(e) => handleInputChange(e, 'workExperience', index, 'startDate')}
-                            className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">End Date</label>
-                          <div className="flex items-center">
-                            <input
-                              type="month"
-                              value={experience.endDate}
-                              onChange={(e) => handleInputChange(e, 'workExperience', index, 'endDate')}
-                              disabled={experience.current}
-                              className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                            />
-                          </div>
-                        </div>
-                        <div className="md:col-span-2 flex items-start">
-                          <input
-                            type="checkbox"
-                            id={`current-job-${index}`}
-                            checked={experience.current}
-                            onChange={(e) => handleInputChange(e, 'workExperience', index, 'current')}
-                            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded mt-1"
-                          />
-                          <label htmlFor={`current-job-${index}`} className="ml-2 block text-sm text-gray-700">
-                            I currently work here
-                          </label>
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className="block text-sm font-medium text-gray-700">Description</label>
-                          <textarea
-                            rows={3}
-                            value={experience.description}
-                            onChange={(e) => handleInputChange(e, 'workExperience', index, 'description')}
-                            className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                            placeholder="Describe your responsibilities and achievements..."
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    {resumeData && resumeData.workExperience ? (
+  resumeData.workExperience.map((experience, index) => (
+    <div key={index} className="mb-6 p-4 border border-gray-200 rounded-md bg-gray-50">
+      {/* All your existing content */}
+      <div className="flex justify-between items-start mb-3">
+        <h4 className="text-md font-medium text-gray-900">Position {index + 1}</h4>
+        {index > 0 && (
+          <button
+            type="button"
+            onClick={() => removeWorkExperience(index)}
+            className="text-red-600 hover:text-red-800"
+          >
+            <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        )}
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Company input */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Company</label>
+          <input
+            type="text"
+            value={experience?.company || ''}
+            onChange={(e) => handleInputChange(e, 'workExperience', index, 'company')}
+            className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+          />
+        </div>
+        
+        {/* Position input */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Position</label>
+          <input
+            type="text"
+            value={experience?.position || ''}
+            onChange={(e) => handleInputChange(e, 'workExperience', index, 'position')}
+            className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+          />
+        </div>
+        
+        {/* Start Date input */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Start Date</label>
+          <input
+            type="month"
+            value={experience?.startDate || ''}
+            onChange={(e) => handleInputChange(e, 'workExperience', index, 'startDate')}
+            className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+          />
+        </div>
+        
+        {/* End Date input */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">End Date</label>
+          <div className="flex items-center">
+            <input
+              type="month"
+              value={experience?.endDate || ''}
+              onChange={(e) => handleInputChange(e, 'workExperience', index, 'endDate')}
+              disabled={experience?.current || false}
+              className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+            />
+          </div>
+        </div>
+        
+        {/* Current job checkbox */}
+        <div className="md:col-span-2 flex items-start">
+          <input
+            type="checkbox"
+            id={`current-job-${index}`}
+            checked={experience?.current || false}
+            onChange={(e) => handleInputChange(e, 'workExperience', index, 'current')}
+            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded mt-1"
+          />
+          <label htmlFor={`current-job-${index}`} className="ml-2 block text-sm text-gray-700">
+            I currently work here
+          </label>
+        </div>
+        
+        {/* Description textarea */}
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700">Description</label>
+          <textarea
+            rows={3}
+            value={experience?.description || ''}
+            onChange={(e) => handleInputChange(e, 'workExperience', index, 'description')}
+            className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+            placeholder="Describe your responsibilities and achievements..."
+          />
+        </div>
+      </div>
+    </div>
+  ))
+) : (
+  // Fallback for when workExperience is not available
+  <div className="p-4 bg-gray-50 rounded-md border border-gray-200">
+    <p className="text-gray-500 text-sm italic">No work experience entries found. Add your first position using the "Add Position" button above.</p>
+  </div>
+)}
                 </div>
                 
                 {/* Education */}
